@@ -1,0 +1,206 @@
+import {
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+  where,
+} from 'firebase/firestore'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { debtsCollection } from '../lib/collections'
+import { formatCurrency, formatDate } from '../lib/format'
+
+type Debt = {
+  id: string
+  personId: string
+  description: string
+  amount: number
+  installmentNumber: number
+  installmentsCount: number
+  purchaseDate: string
+  dueDate: string
+  status: 'aberta' | 'paga'
+}
+
+export function DebtDetails() {
+  const { groupId } = useParams()
+  const { user } = useAuth()
+  const [debts, setDebts] = useState<Debt[]>([])
+  const [error, setError] = useState('')
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [bulkLoading, setBulkLoading] = useState(false)
+
+  useEffect(() => {
+    if (!user || !groupId) return
+
+    const debtsQuery = query(
+      debtsCollection(user.uid),
+      where('groupId', '==', groupId),
+      orderBy('installmentNumber', 'asc'),
+    )
+
+    const unsubscribe = onSnapshot(debtsQuery, (snapshot) => {
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        personId: docItem.data().personId,
+        description: docItem.data().description,
+        amount: Number(docItem.data().amount || 0),
+        installmentNumber: Number(docItem.data().installmentNumber || 1),
+        installmentsCount: Number(docItem.data().installmentsCount || 1),
+        purchaseDate: docItem.data().purchaseDate || '',
+        dueDate: docItem.data().dueDate,
+        status: docItem.data().status,
+      }))
+      setDebts(data)
+    })
+
+    return () => unsubscribe()
+  }, [user, groupId])
+
+  const title = debts[0]?.description ?? 'Parcelas'
+  const purchaseDate = debts[0]?.purchaseDate ?? ''
+
+  const totals = useMemo(() => {
+    const total = debts.reduce((sum, debt) => sum + debt.amount, 0)
+    const paid = debts
+      .filter((debt) => debt.status === 'paga')
+      .reduce((sum, debt) => sum + debt.amount, 0)
+    return { total, paid, open: total - paid }
+  }, [debts])
+
+  const handleToggleStatus = async (debt: Debt) => {
+    if (!user) return
+    setError('')
+    setUpdatingId(debt.id)
+    try {
+      const nextStatus = debt.status === 'aberta' ? 'paga' : 'aberta'
+      setDebts((prev) =>
+        prev.map((item) =>
+          item.id === debt.id ? { ...item, status: nextStatus } : item,
+        ),
+      )
+      await updateDoc(doc(debtsCollection(user.uid), debt.id), {
+        status: nextStatus,
+      })
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message.toLowerCase() : 'erro desconhecido'
+      setError(
+        message.includes('permission')
+          ? 'Sem permissão para atualizar esta parcela.'
+          : 'Não foi possível atualizar a parcela.',
+      )
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  const handleMarkAllPaid = async () => {
+    if (!user) return
+    setError('')
+    setBulkLoading(true)
+    try {
+      setDebts((prev) =>
+        prev.map((item) =>
+          item.status === 'paga' ? item : { ...item, status: 'paga' },
+        ),
+      )
+      const updates = debts
+        .filter((debt) => debt.status !== 'paga')
+        .map((debt) =>
+          updateDoc(doc(debtsCollection(user.uid), debt.id), { status: 'paga' }),
+        )
+      await Promise.all(updates)
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message.toLowerCase() : 'erro desconhecido'
+      setError(
+        message.includes('permission')
+          ? 'Sem permissão para atualizar as parcelas.'
+          : 'Não foi possível atualizar todas as parcelas.',
+      )
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  return (
+    <section className="page">
+      <header className="page-header">
+        <div>
+          <h2>{title}</h2>
+          <p>
+            {purchaseDate
+              ? `Compra em ${formatDate(purchaseDate)}`
+              : 'Parcelas da dívida'}
+          </p>
+        </div>
+        <div className="list-actions">
+          <Link to="/dividas" className="button secondary">
+            Voltar
+          </Link>
+          {debts.length > 0 && (
+            <button
+              className="button primary"
+              onClick={handleMarkAllPaid}
+              disabled={bulkLoading}
+            >
+              {bulkLoading ? 'Atualizando...' : 'Marcar todas pagas'}
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="grid-2">
+        <div className="card highlight">
+          <h3>Total</h3>
+          <strong>{formatCurrency(totals.total)}</strong>
+        </div>
+        <div className="card highlight">
+          <h3>Em aberto</h3>
+          <strong>{formatCurrency(totals.open)}</strong>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Parcelas</h3>
+        {error && <span className="error">{error}</span>}
+        {debts.length === 0 ? (
+          <p className="muted">Nenhuma parcela encontrada.</p>
+        ) : (
+          <ul className="list">
+            {debts.map((debt) => (
+              <li key={debt.id}>
+                <div>
+                  <strong>
+                    Parcela {debt.installmentNumber}/{debt.installmentsCount}
+                  </strong>
+                  <small>
+                    {formatCurrency(debt.amount)} • vence em{' '}
+                    {formatDate(debt.dueDate)}
+                  </small>
+                </div>
+                <div className="list-actions">
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => handleToggleStatus(debt)}
+                    disabled={updatingId === debt.id}
+                  >
+                    {updatingId === debt.id
+                      ? 'Salvando...'
+                      : debt.status === 'aberta'
+                        ? 'Marcar paga'
+                        : 'Reabrir'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}
