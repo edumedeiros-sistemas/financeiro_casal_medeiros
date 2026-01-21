@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   billsCollection,
+  categoriesCollection,
   debtsCollection,
   peopleCollection,
 } from '../lib/collections'
@@ -31,10 +32,18 @@ type Bill = {
   id: string
   title: string
   amount: number
+  dueDate: string
   recurring: boolean
   recurringActive: boolean
   recurringEndDate?: string
   seriesId: string
+  categoryId?: string
+  status: 'aberta' | 'paga'
+}
+
+type Category = {
+  id: string
+  name: string
 }
 
 const monthKeyFromDate = (date: Date) =>
@@ -74,6 +83,7 @@ export function Reports() {
   const [people, setPeople] = useState<Person[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
   const [bills, setBills] = useState<Bill[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [personFilter, setPersonFilter] = useState('all')
   const [yearFilter, setYearFilter] = useState('all')
   const [monthFilter, setMonthFilter] = useState('')
@@ -88,6 +98,10 @@ export function Reports() {
     )
     const debtsQuery = query(debtsCollection(householdId))
     const billsQuery = query(billsCollection(householdId))
+    const categoriesQuery = query(
+      categoriesCollection(householdId),
+      orderBy('name', 'asc'),
+    )
 
     const unsubscribePeople = onSnapshot(peopleQuery, (snapshot) => {
       const data = snapshot.docs.map((docItem) => ({
@@ -116,26 +130,42 @@ export function Reports() {
         id: docItem.id,
         title: docItem.data().title,
         amount: Number(docItem.data().amount || 0),
+        dueDate: docItem.data().dueDate || '',
         recurring: Boolean(docItem.data().recurring),
         recurringActive: Boolean(
           docItem.data().recurringActive ?? docItem.data().recurring ?? false,
         ),
         recurringEndDate: docItem.data().recurringEndDate || '',
         seriesId: docItem.data().seriesId || docItem.id,
+        categoryId: docItem.data().categoryId || '',
+        status: docItem.data().status,
       }))
       setBills(data)
+    })
+
+    const unsubscribeCategories = onSnapshot(categoriesQuery, (snapshot) => {
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        name: docItem.data().name,
+      }))
+      setCategories(data)
     })
 
     return () => {
       unsubscribePeople()
       unsubscribeDebts()
       unsubscribeBills()
+      unsubscribeCategories()
     }
   }, [user, householdId])
 
   const peopleMap = useMemo(
     () => new Map(people.map((person) => [person.id, person.name])),
     [people],
+  )
+  const categoriesMap = useMemo(
+    () => new Map(categories.map((category) => [category.id, category.name])),
+    [categories],
   )
 
   const availableYears = useMemo(() => {
@@ -172,6 +202,18 @@ export function Reports() {
       return true
     })
   }, [debts, personFilter, monthFilter, yearFilter])
+
+  const filteredBills = useMemo(() => {
+    return bills.filter((bill) => {
+      if (monthFilter) {
+        return bill.dueDate.startsWith(monthFilter)
+      }
+      if (yearFilter !== 'all') {
+        return bill.dueDate.startsWith(yearFilter)
+      }
+      return true
+    })
+  }, [bills, monthFilter, yearFilter])
 
   const debtsByPerson = useMemo(() => {
     const totals = new Map<
@@ -301,6 +343,9 @@ export function Reports() {
     })
 
     if (detailed) {
+      const sortedDebts = [...filteredDebts].sort((a, b) =>
+        a.dueDate.localeCompare(b.dueDate),
+      )
       autoTable(doc, {
         startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
           .lastAutoTable?.finalY
@@ -317,7 +362,7 @@ export function Reports() {
             'Status',
           ],
         ],
-        body: filteredDebts.map((debt) => [
+        body: sortedDebts.map((debt) => [
           peopleMap.get(debt.personId) ?? 'Pessoa',
           debt.description,
           `${debt.installmentNumber}/${debt.installmentsCount}`,
@@ -372,6 +417,39 @@ export function Reports() {
       headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
       styles: { fontSize: 9 },
     })
+
+    if (detailed) {
+      const sortedBills = [...filteredBills].sort((a, b) =>
+        a.dueDate.localeCompare(b.dueDate),
+      )
+      autoTable(doc, {
+        startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
+          .lastAutoTable?.finalY
+          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
+              .lastAutoTable!.finalY + 16
+          : headerHeight + 40,
+        head: [
+          ['Conta', 'Categoria', 'Vencimento', 'Valor', 'Recorrência', 'Status'],
+        ],
+        body: sortedBills.map((bill) => [
+          bill.title,
+          categoriesMap.get(bill.categoryId ?? '') ?? 'Sem categoria',
+          bill.dueDate,
+          formatCurrency(bill.amount),
+          bill.recurring
+            ? bill.recurringActive
+              ? bill.recurringEndDate
+                ? `Até ${bill.recurringEndDate}`
+                : 'Recorrente'
+              : 'Encerrada'
+            : 'Única',
+          bill.status === 'paga' ? 'Paga' : 'Em aberto',
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [22, 163, 74], textColor: [255, 255, 255] },
+        styles: { fontSize: 8 },
+      })
+    }
 
     doc.save(`relatorio-contas-${personSlug}-${dateStamp}.pdf`)
   }
