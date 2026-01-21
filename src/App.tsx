@@ -6,12 +6,15 @@ import { Bills } from './pages/Bills'
 import { Dashboard } from './pages/Dashboard'
 import { DebtDetails } from './pages/DebtDetails'
 import { Debts } from './pages/Debts'
+import { AdminRoute } from './components/AdminRoute'
+import { AdminConfig } from './pages/AdminConfig'
 import { Households } from './pages/Households'
 import { Login } from './pages/Login'
 import { NotFound } from './pages/NotFound'
 import { People } from './pages/People'
 import { Reports } from './pages/Reports'
 import { Register } from './pages/Register'
+import { UsersAdmin } from './pages/UsersAdmin'
 
 function App() {
   return (
@@ -30,7 +33,30 @@ function App() {
         <Route path="dividas/:groupId" element={<DebtDetails />} />
         <Route path="contas" element={<Bills />} />
         <Route path="relatorios" element={<Reports />} />
-        <Route path="casais_medeiros" element={<Households />} />
+        <Route
+          path="casais_medeiros"
+          element={
+            <AdminRoute>
+              <Households />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="adm_config"
+          element={
+            <AdminRoute>
+              <AdminConfig />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="usuarios_admin"
+          element={
+            <AdminRoute>
+              <UsersAdmin />
+            </AdminRoute>
+          }
+        />
       </Route>
       <Route
         path="/login"

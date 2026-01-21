@@ -9,6 +9,8 @@ import { householdDoc } from '../lib/collections'
 export function AppLayout() {
   const { user, householdId } = useAuth()
   const [householdName, setHouseholdName] = useState('')
+  const isAdmin =
+    user?.email?.toLowerCase() === 'edu.netto.smedeiros@hotmail.com'
 
   useEffect(() => {
     if (!householdId) {
@@ -51,6 +53,7 @@ export function AppLayout() {
         <NavLink to="/dividas">Dívidas</NavLink>
         <NavLink to="/contas">Contas</NavLink>
         <NavLink to="/relatorios">Relatórios</NavLink>
+        {isAdmin && <NavLink to="/adm_config">Admin</NavLink>}
       </nav>
 
       <main className="app-main">

@@ -9,6 +9,8 @@ export const householdDoc = (householdId: string) =>
 export const userProfileDoc = (uid: string) =>
   doc(db, 'userProfiles', uid)
 
+export const userProfilesCollection = () => collection(db, 'userProfiles')
+
 export const peopleCollection = (householdId: string) =>
   collection(db, 'households', householdId, 'people')
 
