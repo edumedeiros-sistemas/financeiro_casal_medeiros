@@ -108,6 +108,7 @@ export function Reports() {
   const [yearFilter, setYearFilter] = useState('all')
   const [monthFilter, setMonthFilter] = useState('')
   const [detailed, setDetailed] = useState(false)
+  const [onlyOverdue, setOnlyOverdue] = useState(false)
 
   useEffect(() => {
     if (!user || !householdId) return
@@ -132,17 +133,22 @@ export function Reports() {
     })
 
     const unsubscribeDebts = onSnapshot(debtsQuery, (snapshot) => {
-      const data = snapshot.docs.map((docItem) => ({
-        id: docItem.id,
-        personId: docItem.data().personId,
-        description: docItem.data().description,
-        amount: Number(docItem.data().amount || 0),
-        installmentNumber: Number(docItem.data().installmentNumber || 1),
-        installmentsCount: Number(docItem.data().installmentsCount || 1),
-        dueDate: docItem.data().dueDate || '',
-        paidAmount: Number(docItem.data().paidAmount || 0),
-        status: docItem.data().status,
-      }))
+      const data = snapshot.docs.map((docItem) => {
+        const amount = Number(docItem.data().amount || 0)
+        const status = docItem.data().status as Debt['status']
+        const paidAmount = Number(docItem.data().paidAmount || 0)
+        return {
+          id: docItem.id,
+          personId: docItem.data().personId,
+          description: docItem.data().description,
+          amount,
+          installmentNumber: Number(docItem.data().installmentNumber || 1),
+          installmentsCount: Number(docItem.data().installmentsCount || 1),
+          dueDate: docItem.data().dueDate || '',
+          paidAmount: paidAmount > 0 || status !== 'paga' ? paidAmount : amount,
+          status,
+        }
+      })
       setDebts(data)
     })
 
@@ -211,7 +217,15 @@ export function Reports() {
   }, [debts])
 
   const filteredDebts = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
     return debts.filter((debt) => {
+      const remaining = Math.max(0, debt.amount - debt.paidAmount)
+      if (onlyOverdue && !(debt.dueDate && debt.dueDate < today)) {
+        return false
+      }
+      if (onlyOverdue && remaining === 0) {
+        return false
+      }
       if (personFilter !== 'all' && debt.personId !== personFilter) {
         return false
       }
@@ -223,7 +237,7 @@ export function Reports() {
       }
       return true
     })
-  }, [debts, personFilter, monthFilter, yearFilter])
+  }, [debts, personFilter, monthFilter, yearFilter, onlyOverdue])
 
   const filteredBills = useMemo(() => {
     return bills.filter((bill) => {
@@ -596,6 +610,14 @@ export function Reports() {
               type="checkbox"
               checked={detailed}
               onChange={(event) => setDetailed(event.target.checked)}
+            />
+          </label>
+          <label className="inline-field">
+            Somente dívidas vencidas
+            <input
+              type="checkbox"
+              checked={onlyOverdue}
+              onChange={(event) => setOnlyOverdue(event.target.checked)}
             />
           </label>
         </div>
