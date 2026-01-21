@@ -58,24 +58,30 @@ export function Dashboard() {
     }
   }, [user, householdId])
 
+  const getPaidAmount = (item: Debt) =>
+    item.paidAmount > 0 ? item.paidAmount : item.status === 'paga' ? item.amount : 0
+
+  const getRemainingAmount = (item: Debt) =>
+    Math.max(0, item.amount - getPaidAmount(item))
+
   const openDebts = useMemo(
-    () => debts.filter((item) => item.amount > item.paidAmount),
+    () => debts.filter((item) => getRemainingAmount(item) > 0),
     [debts],
   )
   const paidDebts = useMemo(
-    () => debts.filter((item) => item.paidAmount > 0),
+    () => debts.filter((item) => getPaidAmount(item) > 0),
     [debts],
   )
   const totalDebtsOpen = useMemo(
     () =>
       openDebts.reduce(
-        (total, item) => total + (item.amount - item.paidAmount),
+        (total, item) => total + getRemainingAmount(item),
         0,
       ),
     [openDebts],
   )
   const totalDebtsPaid = useMemo(
-    () => debts.reduce((total, item) => total + item.paidAmount, 0),
+    () => debts.reduce((total, item) => total + getPaidAmount(item), 0),
     [debts],
   )
   const openBills = useMemo(
@@ -102,7 +108,7 @@ export function Dashboard() {
     [debts, currentMonthKey],
   )
   const monthlyPaidDebts = useMemo(
-    () => monthlyDebts.filter((item) => item.paidAmount > 0),
+    () => monthlyDebts.filter((item) => getPaidAmount(item) > 0),
     [monthlyDebts],
   )
   const monthlyBills = useMemo(
@@ -118,7 +124,8 @@ export function Dashboard() {
     [monthlyDebts],
   )
   const totalMonthlyPaidDebts = useMemo(
-    () => monthlyPaidDebts.reduce((total, item) => total + item.paidAmount, 0),
+    () =>
+      monthlyPaidDebts.reduce((total, item) => total + getPaidAmount(item), 0),
     [monthlyPaidDebts],
   )
   const totalMonthlyBills = useMemo(
@@ -141,7 +148,7 @@ export function Dashboard() {
   const totalOverdueDebts = useMemo(
     () =>
       overdueDebts.reduce(
-        (total, item) => total + (item.amount - item.paidAmount),
+        (total, item) => total + getRemainingAmount(item),
         0,
       ),
     [overdueDebts],

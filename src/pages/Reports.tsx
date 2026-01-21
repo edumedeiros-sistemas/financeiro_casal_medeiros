@@ -80,6 +80,24 @@ const slugify = (value: string) =>
     .replace(/(^-|-$)/g, '')
     .toLowerCase()
 
+let cachedFontData: string | null = null
+
+const loadPdfFont = async (doc: jsPDF) => {
+  if (!cachedFontData) {
+    const response = await fetch('/fonts/NotoSans-Regular.ttf')
+    const buffer = await response.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte)
+    })
+    cachedFontData = btoa(binary)
+  }
+  doc.addFileToVFS('NotoSans-Regular.ttf', cachedFontData)
+  doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal')
+  doc.setFont('NotoSans', 'normal')
+}
+
 export function Reports() {
   const { user, householdId } = useAuth()
   const [people, setPeople] = useState<Person[]>([])
@@ -305,8 +323,9 @@ export function Reports() {
     return { personLabel, yearLabel, monthLabel }
   }, [personFilter, peopleMap, yearFilter, monthFilter])
 
-  const exportDebtsPdf = () => {
+  const exportDebtsPdf = async () => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+    await loadPdfFont(doc)
     const nowDate = new Date()
     const dateStamp = nowDate.toISOString().slice(0, 10)
     const personSlug = slugify(filterSummary.personLabel)
@@ -342,8 +361,12 @@ export function Reports() {
         formatCurrency(item.paid),
       ]),
       theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-      styles: { fontSize: 9 },
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        font: 'NotoSans',
+      },
+      styles: { fontSize: 9, font: 'NotoSans' },
     })
 
     if (detailed) {
@@ -377,16 +400,21 @@ export function Reports() {
           formatCurrency(Math.max(0, debt.amount - debt.paidAmount)),
         ]),
         theme: 'grid',
-        headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
-        styles: { fontSize: 8 },
+        headStyles: {
+          fillColor: [37, 99, 235],
+          textColor: [255, 255, 255],
+          font: 'NotoSans',
+        },
+        styles: { fontSize: 8, font: 'NotoSans' },
       })
     }
 
     doc.save(`relatorio-dividas-${personSlug}-${dateStamp}.pdf`)
   }
 
-  const exportBillsPdf = () => {
+  const exportBillsPdf = async () => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+    await loadPdfFont(doc)
     const nowDate = new Date()
     const dateStamp = nowDate.toISOString().slice(0, 10)
     const personSlug = slugify(filterSummary.personLabel)
@@ -420,8 +448,12 @@ export function Reports() {
         formatCurrency(item.total),
       ]),
       theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-      styles: { fontSize: 9 },
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        font: 'NotoSans',
+      },
+      styles: { fontSize: 9, font: 'NotoSans' },
     })
 
     if (detailed) {
@@ -448,9 +480,7 @@ export function Reports() {
         body: sortedBills.map((bill) => [
           bill.title,
           categoriesMap.get(bill.categoryId ?? '') ?? 'Sem categoria',
-          bill.personId
-            ? peopleMap.get(bill.personId) ?? 'Pessoa'
-            : '—',
+          bill.personId ? peopleMap.get(bill.personId) ?? 'Pessoa' : '—',
           bill.dueDate,
           formatCurrency(bill.amount),
           bill.recurring
@@ -463,8 +493,12 @@ export function Reports() {
           bill.status === 'paga' ? 'Paga' : 'Em aberto',
         ]),
         theme: 'grid',
-        headStyles: { fillColor: [22, 163, 74], textColor: [255, 255, 255] },
-        styles: { fontSize: 8 },
+        headStyles: {
+          fillColor: [22, 163, 74],
+          textColor: [255, 255, 255],
+          font: 'NotoSans',
+        },
+        styles: { fontSize: 8, font: 'NotoSans' },
       })
     }
 
