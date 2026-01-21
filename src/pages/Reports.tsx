@@ -25,7 +25,8 @@ type Debt = {
   installmentNumber: number
   installmentsCount: number
   dueDate: string
-  status: 'aberta' | 'paga'
+  paidAmount: number
+  status: 'aberta' | 'parcial' | 'paga'
 }
 
 type Bill = {
@@ -38,6 +39,7 @@ type Bill = {
   recurringEndDate?: string
   seriesId: string
   categoryId?: string
+  personId?: string
   status: 'aberta' | 'paga'
 }
 
@@ -120,6 +122,7 @@ export function Reports() {
         installmentNumber: Number(docItem.data().installmentNumber || 1),
         installmentsCount: Number(docItem.data().installmentsCount || 1),
         dueDate: docItem.data().dueDate || '',
+        paidAmount: Number(docItem.data().paidAmount || 0),
         status: docItem.data().status,
       }))
       setDebts(data)
@@ -138,6 +141,7 @@ export function Reports() {
         recurringEndDate: docItem.data().recurringEndDate || '',
         seriesId: docItem.data().seriesId || docItem.id,
         categoryId: docItem.data().categoryId || '',
+        personId: docItem.data().personId || '',
         status: docItem.data().status,
       }))
       setBills(data)
@@ -205,6 +209,9 @@ export function Reports() {
 
   const filteredBills = useMemo(() => {
     return bills.filter((bill) => {
+      if (personFilter !== 'all' && bill.personId !== personFilter) {
+        return false
+      }
       if (monthFilter) {
         return bill.dueDate.startsWith(monthFilter)
       }
@@ -226,11 +233,8 @@ export function Reports() {
         paid: 0,
         total: 0,
       }
-      if (debt.status === 'aberta') {
-        current.open += debt.amount
-      } else {
-        current.paid += debt.amount
-      }
+      current.paid += debt.paidAmount
+      current.open += Math.max(0, debt.amount - debt.paidAmount)
       current.total += debt.amount
       totals.set(debt.personId, current)
     })
@@ -359,7 +363,8 @@ export function Reports() {
             'Parcela',
             'Vencimento',
             'Valor',
-            'Status',
+            'Pago',
+            'Saldo',
           ],
         ],
         body: sortedDebts.map((debt) => [
@@ -368,7 +373,8 @@ export function Reports() {
           `${debt.installmentNumber}/${debt.installmentsCount}`,
           debt.dueDate,
           formatCurrency(debt.amount),
-          debt.status === 'aberta' ? 'Em aberto' : 'Paga',
+          formatCurrency(debt.paidAmount),
+          formatCurrency(Math.max(0, debt.amount - debt.paidAmount)),
         ]),
         theme: 'grid',
         headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
@@ -429,11 +435,22 @@ export function Reports() {
               .lastAutoTable!.finalY + 16
           : headerHeight + 40,
         head: [
-          ['Conta', 'Categoria', 'Vencimento', 'Valor', 'Recorrência', 'Status'],
+          [
+            'Conta',
+            'Categoria',
+            'Pessoa',
+            'Vencimento',
+            'Valor',
+            'Recorrência',
+            'Status',
+          ],
         ],
         body: sortedBills.map((bill) => [
           bill.title,
           categoriesMap.get(bill.categoryId ?? '') ?? 'Sem categoria',
+          bill.personId
+            ? peopleMap.get(bill.personId) ?? 'Pessoa'
+            : '—',
           bill.dueDate,
           formatCurrency(bill.amount),
           bill.recurring
@@ -589,7 +606,12 @@ export function Reports() {
                       {debt.installmentNumber}/{debt.installmentsCount} • vence{' '}
                       {formatMonthLabel(debt.dueDate.slice(0, 7))}
                     </small>
-                    <small>Status: {debt.status}</small>
+                    <small>
+                      Pago: {formatCurrency(debt.paidAmount)} • saldo{' '}
+                      {formatCurrency(
+                        Math.max(0, debt.amount - debt.paidAmount),
+                      )}
+                    </small>
                   </div>
                 </li>
               ))}

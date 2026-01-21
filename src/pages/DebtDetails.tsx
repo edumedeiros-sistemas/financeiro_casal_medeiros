@@ -21,7 +21,8 @@ type Debt = {
   installmentsCount: number
   purchaseDate: string
   dueDate: string
-  status: 'aberta' | 'paga'
+  paidAmount: number
+  status: 'aberta' | 'parcial' | 'paga'
 }
 
 export function DebtDetails() {
@@ -51,6 +52,7 @@ export function DebtDetails() {
         installmentsCount: Number(docItem.data().installmentsCount || 1),
         purchaseDate: docItem.data().purchaseDate || '',
         dueDate: docItem.data().dueDate,
+        paidAmount: Number(docItem.data().paidAmount || 0),
         status: docItem.data().status,
       }))
       setDebts(data)
@@ -64,9 +66,7 @@ export function DebtDetails() {
 
   const totals = useMemo(() => {
     const total = debts.reduce((sum, debt) => sum + debt.amount, 0)
-    const paid = debts
-      .filter((debt) => debt.status === 'paga')
-      .reduce((sum, debt) => sum + debt.amount, 0)
+    const paid = debts.reduce((sum, debt) => sum + debt.paidAmount, 0)
     return { total, paid, open: total - paid }
   }, [debts])
 
@@ -75,14 +75,21 @@ export function DebtDetails() {
     setError('')
     setUpdatingId(debt.id)
     try {
-      const nextStatus = debt.status === 'aberta' ? 'paga' : 'aberta'
+      const nextStatus = debt.status === 'paga' ? 'aberta' : 'paga'
       setDebts((prev) =>
         prev.map((item) =>
-          item.id === debt.id ? { ...item, status: nextStatus } : item,
+          item.id === debt.id
+            ? {
+                ...item,
+                status: nextStatus,
+                paidAmount: nextStatus === 'paga' ? item.amount : 0,
+              }
+            : item,
         ),
       )
       await updateDoc(doc(debtsCollection(householdId), debt.id), {
         status: nextStatus,
+        paidAmount: nextStatus === 'paga' ? debt.amount : 0,
       })
     } catch (err) {
       const message =
@@ -104,7 +111,9 @@ export function DebtDetails() {
     try {
       setDebts((prev) =>
         prev.map((item) =>
-          item.status === 'paga' ? item : { ...item, status: 'paga' },
+          item.status === 'paga'
+            ? item
+            : { ...item, status: 'paga', paidAmount: item.amount },
         ),
       )
       const updates = debts
@@ -112,6 +121,7 @@ export function DebtDetails() {
         .map((debt) =>
           updateDoc(doc(debtsCollection(householdId), debt.id), {
             status: 'paga',
+            paidAmount: debt.amount,
           }),
         )
       await Promise.all(updates)
@@ -125,6 +135,48 @@ export function DebtDetails() {
       )
     } finally {
       setBulkLoading(false)
+    }
+  }
+
+  const [partialValues, setPartialValues] = useState<Record<string, string>>(
+    {},
+  )
+
+  const handlePartialPayment = async (debt: Debt) => {
+    if (!user || !householdId) return
+    const value = Number(partialValues[debt.id] || 0)
+    const remaining = debt.amount - debt.paidAmount
+    if (value <= 0 || value > remaining) {
+      setError('Valor inválido para pagamento parcial.')
+      return
+    }
+    setError('')
+    setUpdatingId(debt.id)
+    try {
+      const nextPaid = Number((debt.paidAmount + value).toFixed(2))
+      const nextStatus = nextPaid >= debt.amount ? 'paga' : 'parcial'
+      setDebts((prev) =>
+        prev.map((item) =>
+          item.id === debt.id
+            ? { ...item, paidAmount: nextPaid, status: nextStatus }
+            : item,
+        ),
+      )
+      await updateDoc(doc(debtsCollection(householdId), debt.id), {
+        paidAmount: nextPaid,
+        status: nextStatus,
+      })
+      setPartialValues((prev) => ({ ...prev, [debt.id]: '' }))
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message.toLowerCase() : 'erro desconhecido'
+      setError(
+        message.includes('permission')
+          ? 'Sem permissão para atualizar esta parcela.'
+          : 'Não foi possível atualizar a parcela.',
+      )
+    } finally {
+      setUpdatingId(null)
     }
   }
 
@@ -197,6 +249,12 @@ export function DebtDetails() {
                     {formatCurrency(debt.amount)} • vence em{' '}
                     {formatDate(debt.dueDate)}
                   </small>
+                  {debt.paidAmount > 0 && debt.paidAmount < debt.amount && (
+                    <small>
+                      Pago parcial: {formatCurrency(debt.paidAmount)} • faltam{' '}
+                      {formatCurrency(debt.amount - debt.paidAmount)}
+                    </small>
+                  )}
                 </div>
                 <div className="list-actions">
                   <button
@@ -207,9 +265,31 @@ export function DebtDetails() {
                   >
                     {updatingId === debt.id
                       ? 'Salvando...'
-                      : debt.status === 'aberta'
-                        ? 'Marcar paga'
-                        : 'Reabrir'}
+                      : debt.status === 'paga'
+                        ? 'Reabrir'
+                        : 'Marcar paga'}
+                  </button>
+                  <input
+                    className="input-inline"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Pago parcial"
+                    value={partialValues[debt.id] ?? ''}
+                    onChange={(event) =>
+                      setPartialValues((prev) => ({
+                        ...prev,
+                        [debt.id]: event.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => handlePartialPayment(debt)}
+                    disabled={updatingId === debt.id}
+                  >
+                    Registrar
                   </button>
                 </div>
               </li>

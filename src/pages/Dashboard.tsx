@@ -8,8 +8,9 @@ import { formatCurrency } from '../lib/format'
 type Debt = {
   id: string
   amount: number
+  paidAmount: number
   dueDate: string
-  status: 'aberta' | 'paga'
+  status: 'aberta' | 'parcial' | 'paga'
 }
 
 type Bill = {
@@ -34,6 +35,7 @@ export function Dashboard() {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
         amount: Number(doc.data().amount || 0),
+        paidAmount: Number(doc.data().paidAmount || 0),
         dueDate: doc.data().dueDate || '',
         status: doc.data().status,
       }))
@@ -57,20 +59,24 @@ export function Dashboard() {
   }, [user, householdId])
 
   const openDebts = useMemo(
-    () => debts.filter((item) => item.status === 'aberta'),
+    () => debts.filter((item) => item.amount > item.paidAmount),
     [debts],
   )
   const paidDebts = useMemo(
-    () => debts.filter((item) => item.status === 'paga'),
+    () => debts.filter((item) => item.paidAmount > 0),
     [debts],
   )
   const totalDebtsOpen = useMemo(
-    () => openDebts.reduce((total, item) => total + item.amount, 0),
+    () =>
+      openDebts.reduce(
+        (total, item) => total + (item.amount - item.paidAmount),
+        0,
+      ),
     [openDebts],
   )
   const totalDebtsPaid = useMemo(
-    () => paidDebts.reduce((total, item) => total + item.amount, 0),
-    [paidDebts],
+    () => debts.reduce((total, item) => total + item.paidAmount, 0),
+    [debts],
   )
   const openBills = useMemo(
     () => bills.filter((item) => item.status === 'aberta'),
@@ -96,8 +102,8 @@ export function Dashboard() {
     [debts, currentMonthKey],
   )
   const monthlyPaidDebts = useMemo(
-    () => paidDebts.filter((item) => item.dueDate.startsWith(currentMonthKey)),
-    [paidDebts, currentMonthKey],
+    () => monthlyDebts.filter((item) => item.paidAmount > 0),
+    [monthlyDebts],
   )
   const monthlyBills = useMemo(
     () => bills.filter((item) => item.dueDate.startsWith(currentMonthKey)),
@@ -112,7 +118,7 @@ export function Dashboard() {
     [monthlyDebts],
   )
   const totalMonthlyPaidDebts = useMemo(
-    () => monthlyPaidDebts.reduce((total, item) => total + item.amount, 0),
+    () => monthlyPaidDebts.reduce((total, item) => total + item.paidAmount, 0),
     [monthlyPaidDebts],
   )
   const totalMonthlyBills = useMemo(
@@ -133,7 +139,11 @@ export function Dashboard() {
     return openBills.filter((item) => item.dueDate && item.dueDate < today)
   }, [openBills, now])
   const totalOverdueDebts = useMemo(
-    () => overdueDebts.reduce((total, item) => total + item.amount, 0),
+    () =>
+      overdueDebts.reduce(
+        (total, item) => total + (item.amount - item.paidAmount),
+        0,
+      ),
     [overdueDebts],
   )
   const totalOverdueBills = useMemo(

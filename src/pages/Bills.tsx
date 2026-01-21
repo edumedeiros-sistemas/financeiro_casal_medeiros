@@ -13,7 +13,11 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { billsCollection, categoriesCollection } from '../lib/collections'
+import {
+  billsCollection,
+  categoriesCollection,
+  peopleCollection,
+} from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
 
 type Bill = {
@@ -26,6 +30,7 @@ type Bill = {
   seriesId: string
   recurringEndDate?: string
   categoryId?: string
+  personId?: string
   status: 'aberta' | 'paga'
 }
 
@@ -51,9 +56,15 @@ const addMonths = (dateString: string, monthsToAdd: number) => {
   return `${result.getFullYear()}-${monthString}-${dayString}`
 }
 
+type Person = {
+  id: string
+  name: string
+}
+
 export function Bills() {
   const { user, householdId } = useAuth()
   const [bills, setBills] = useState<Bill[]>([])
+  const [people, setPeople] = useState<Person[]>([])
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
   const [dueDate, setDueDate] = useState('')
@@ -61,6 +72,7 @@ export function Bills() {
   const [recurringEndDate, setRecurringEndDate] = useState('')
   const [editingBillId, setEditingBillId] = useState<string | null>(null)
   const [categoryId, setCategoryId] = useState('')
+  const [personId, setPersonId] = useState('')
   const [categories, setCategories] = useState<Category[]>([])
   const [monthFilter, setMonthFilter] = useState(
     new Date().toISOString().slice(0, 7),
@@ -78,6 +90,10 @@ export function Bills() {
       categoriesCollection(householdId),
       orderBy('name', 'asc'),
     )
+    const peopleQuery = query(
+      peopleCollection(householdId),
+      orderBy('name', 'asc'),
+    )
 
     const unsubscribe = onSnapshot(billsQuery, (snapshot) => {
       const data = snapshot.docs.map((docItem) => ({
@@ -92,6 +108,7 @@ export function Bills() {
         seriesId: docItem.data().seriesId || '',
         recurringEndDate: docItem.data().recurringEndDate || '',
         categoryId: docItem.data().categoryId || '',
+        personId: docItem.data().personId || '',
         status: docItem.data().status,
       }))
       setBills(data)
@@ -105,9 +122,18 @@ export function Bills() {
       setCategories(data)
     })
 
+    const unsubscribePeople = onSnapshot(peopleQuery, (snapshot) => {
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        name: docItem.data().name,
+      }))
+      setPeople(data)
+    })
+
     return () => {
       unsubscribe()
       unsubscribeCategories()
+      unsubscribePeople()
     }
   }, [user, householdId])
 
@@ -130,6 +156,7 @@ export function Bills() {
       seriesId,
       recurringEndDate: isRecurring ? recurringEndDate : '',
       categoryId: categoryId || '',
+      personId: personId || '',
       status: editingBill?.status ?? 'aberta',
     }
 
@@ -147,6 +174,7 @@ export function Bills() {
     setIsRecurring(true)
     setRecurringEndDate('')
     setCategoryId('')
+    setPersonId('')
     setEditingBillId(null)
     setLoading(false)
   }
@@ -186,6 +214,7 @@ export function Bills() {
           seriesId: bill.seriesId,
           recurringEndDate: bill.recurringEndDate ?? '',
           categoryId: bill.categoryId ?? '',
+          personId: bill.personId ?? '',
           status: 'aberta',
           createdAt: serverTimestamp(),
         })
@@ -206,6 +235,7 @@ export function Bills() {
     setIsRecurring(bill.recurring)
     setRecurringEndDate(bill.recurringEndDate ?? '')
     setCategoryId(bill.categoryId ?? '')
+    setPersonId(bill.personId ?? '')
   }
 
   const handleCancelEdit = () => {
@@ -216,6 +246,7 @@ export function Bills() {
     setIsRecurring(true)
     setRecurringEndDate('')
     setCategoryId('')
+    setPersonId('')
   }
 
   const handleStopRecurring = async (seriesId: string) => {
@@ -239,6 +270,10 @@ export function Bills() {
   const categoriesMap = useMemo(
     () => new Map(categories.map((item) => [item.id, item.name])),
     [categories],
+  )
+  const peopleMap = useMemo(
+    () => new Map(people.map((item) => [item.id, item.name])),
+    [people],
   )
 
   if (!householdId) {
@@ -311,6 +346,20 @@ export function Bills() {
             </select>
           </label>
           <label>
+            Pessoa (opcional)
+            <select
+              value={personId}
+              onChange={(event) => setPersonId(event.target.value)}
+            >
+              <option value="">Sem pessoa</option>
+              {people.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Recorrência
             <select
               value={isRecurring ? 'recorrente' : 'unica'}
@@ -374,6 +423,9 @@ export function Bills() {
                       {formatDate(bill.dueDate)} •{' '}
                       {categoriesMap.get(bill.categoryId ?? '') ??
                         'Sem categoria'}{' '}
+                      {bill.personId
+                        ? `• ${peopleMap.get(bill.personId) ?? 'Pessoa'}`
+                        : ''}{' '}
                       •{' '}
                       {bill.recurring
                         ? bill.recurringActive

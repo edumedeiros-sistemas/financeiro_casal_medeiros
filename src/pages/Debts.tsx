@@ -32,7 +32,8 @@ type Debt = {
   installmentsCount: number
   purchaseDate: string
   dueDate: string
-  status: 'aberta' | 'paga'
+  paidAmount: number
+  status: 'aberta' | 'parcial' | 'paga'
 }
 
 const addMonths = (dateString: string, monthsToAdd: number) => {
@@ -116,6 +117,7 @@ export function Debts() {
         installmentsCount: Number(docItem.data().installmentsCount || 1),
         purchaseDate: docItem.data().purchaseDate || '',
         dueDate: docItem.data().dueDate,
+        paidAmount: Number(docItem.data().paidAmount || 0),
         status: docItem.data().status,
       }))
       setDebts(data)
@@ -170,6 +172,7 @@ export function Debts() {
         installmentsCount: totalInstallments,
         purchaseDate,
         dueDate: addMonths(dueDate, index),
+        paidAmount: 0,
         status: 'aberta',
         groupId,
         createdAt: serverTimestamp(),
@@ -188,9 +191,10 @@ export function Debts() {
 
   const handleToggleStatus = async (debt: Debt) => {
     if (!user || !householdId) return
-    const nextStatus = debt.status === 'aberta' ? 'paga' : 'aberta'
+    const nextStatus = debt.status === 'paga' ? 'aberta' : 'paga'
     await updateDoc(doc(debtsCollection(householdId), debt.id), {
       status: nextStatus,
+      paidAmount: nextStatus === 'paga' ? debt.amount : 0,
     })
   }
 
@@ -242,7 +246,7 @@ export function Debts() {
     return debts.filter((debt) => debt.dueDate.startsWith(yearFilter))
   }, [debts, monthFilter, yearFilter])
   const openMonthDebtsAll = useMemo(
-    () => currentMonthDebts.filter((debt) => debt.status === 'aberta'),
+    () => currentMonthDebts.filter((debt) => debt.amount > debt.paidAmount),
     [currentMonthDebts],
   )
   const filteredMonthDebts = useMemo(() => {
@@ -250,21 +254,24 @@ export function Debts() {
     return currentMonthDebts.filter((debt) => debt.personId === filterPersonId)
   }, [currentMonthDebts, filterPersonId])
   const openDebts = useMemo(
-    () => filteredMonthDebts.filter((debt) => debt.status === 'aberta'),
+    () => filteredMonthDebts.filter((debt) => debt.amount > debt.paidAmount),
     [filteredMonthDebts],
   )
 
   const totalsByPerson = useMemo(() => {
     if (filterPersonId === 'all') {
       const total = openMonthDebtsAll.reduce(
-        (sum, debt) => sum + debt.amount,
+        (sum, debt) => sum + (debt.amount - debt.paidAmount),
         0,
       )
       return [['Todos', total]] as Array<[string, number]>
     }
     const totals = new Map<string, number>()
     openDebts.forEach((debt) => {
-      totals.set(debt.personId, (totals.get(debt.personId) || 0) + debt.amount)
+      totals.set(
+        debt.personId,
+        (totals.get(debt.personId) || 0) + (debt.amount - debt.paidAmount),
+      )
     })
     return Array.from(totals.entries()).sort((a, b) => b[1] - a[1])
   }, [openDebts])
@@ -272,7 +279,7 @@ export function Debts() {
   const totalsByMonth = useMemo(() => {
     if (filterPersonId === 'all') {
       const total = openMonthDebtsAll.reduce(
-        (sum, debt) => sum + debt.amount,
+        (sum, debt) => sum + (debt.amount - debt.paidAmount),
         0,
       )
       return [['Todos', total]] as Array<[string, number]>
@@ -280,7 +287,10 @@ export function Debts() {
     const totals = new Map<string, number>()
     openDebts.forEach((debt) => {
       const monthKey = debt.dueDate.slice(0, 7)
-      totals.set(monthKey, (totals.get(monthKey) || 0) + debt.amount)
+      totals.set(
+        monthKey,
+        (totals.get(monthKey) || 0) + (debt.amount - debt.paidAmount),
+      )
     })
     return Array.from(totals.entries()).sort((a, b) => a[0].localeCompare(b[0]))
   }, [openDebts])
@@ -539,6 +549,13 @@ export function Debts() {
                           compra {formatDate(debt.purchaseDate)} • vence em{' '}
                           {formatDate(debt.dueDate)}
                         </small>
+                        {debt.paidAmount > 0 && debt.paidAmount < debt.amount && (
+                          <small>
+                            Pago parcial: {formatCurrency(debt.paidAmount)} •
+                            faltam{' '}
+                            {formatCurrency(debt.amount - debt.paidAmount)}
+                          </small>
+                        )}
                       </div>
                       <div className="list-actions">
                         <button
