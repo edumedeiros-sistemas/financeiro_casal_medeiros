@@ -19,6 +19,9 @@ export function AdminConfig() {
           <Link className="button secondary" to="/casais_medeiros">
             Cadastro de casais
           </Link>
+          <Link className="button secondary" to="/categorias_admin">
+            Cadastro de categorias
+          </Link>
           <Link className="button secondary" to="/usuarios_admin">
             Usuários e casais
           </Link>

@@ -10,10 +10,10 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { billsCollection } from '../lib/collections'
+import { billsCollection, categoriesCollection } from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
 
 type Bill = {
@@ -25,7 +25,13 @@ type Bill = {
   recurringActive: boolean
   seriesId: string
   recurringEndDate?: string
+  categoryId?: string
   status: 'aberta' | 'paga'
+}
+
+type Category = {
+  id: string
+  name: string
 }
 
 const addMonths = (dateString: string, monthsToAdd: number) => {
@@ -54,6 +60,8 @@ export function Bills() {
   const [isRecurring, setIsRecurring] = useState(true)
   const [recurringEndDate, setRecurringEndDate] = useState('')
   const [editingBillId, setEditingBillId] = useState<string | null>(null)
+  const [categoryId, setCategoryId] = useState('')
+  const [categories, setCategories] = useState<Category[]>([])
   const [monthFilter, setMonthFilter] = useState(
     new Date().toISOString().slice(0, 7),
   )
@@ -65,6 +73,10 @@ export function Bills() {
     const billsQuery = query(
       billsCollection(householdId),
       orderBy('dueDate', 'asc'),
+    )
+    const categoriesQuery = query(
+      categoriesCollection(householdId),
+      orderBy('name', 'asc'),
     )
 
     const unsubscribe = onSnapshot(billsQuery, (snapshot) => {
@@ -79,12 +91,24 @@ export function Bills() {
         ),
         seriesId: docItem.data().seriesId || '',
         recurringEndDate: docItem.data().recurringEndDate || '',
+        categoryId: docItem.data().categoryId || '',
         status: docItem.data().status,
       }))
       setBills(data)
     })
 
-    return () => unsubscribe()
+    const unsubscribeCategories = onSnapshot(categoriesQuery, (snapshot) => {
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        name: docItem.data().name,
+      }))
+      setCategories(data)
+    })
+
+    return () => {
+      unsubscribe()
+      unsubscribeCategories()
+    }
   }, [user, householdId])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -105,6 +129,7 @@ export function Bills() {
         : false,
       seriesId,
       recurringEndDate: isRecurring ? recurringEndDate : '',
+      categoryId: categoryId || '',
       status: editingBill?.status ?? 'aberta',
     }
 
@@ -121,6 +146,7 @@ export function Bills() {
     setDueDate('')
     setIsRecurring(true)
     setRecurringEndDate('')
+    setCategoryId('')
     setEditingBillId(null)
     setLoading(false)
   }
@@ -159,6 +185,7 @@ export function Bills() {
           recurringActive: true,
           seriesId: bill.seriesId,
           recurringEndDate: bill.recurringEndDate ?? '',
+          categoryId: bill.categoryId ?? '',
           status: 'aberta',
           createdAt: serverTimestamp(),
         })
@@ -178,6 +205,7 @@ export function Bills() {
     setDueDate(bill.dueDate)
     setIsRecurring(bill.recurring)
     setRecurringEndDate(bill.recurringEndDate ?? '')
+    setCategoryId(bill.categoryId ?? '')
   }
 
   const handleCancelEdit = () => {
@@ -187,6 +215,7 @@ export function Bills() {
     setDueDate('')
     setIsRecurring(true)
     setRecurringEndDate('')
+    setCategoryId('')
   }
 
   const handleStopRecurring = async (seriesId: string) => {
@@ -206,6 +235,10 @@ export function Bills() {
 
   const filteredBills = bills.filter((bill) =>
     bill.dueDate.startsWith(monthFilter),
+  )
+  const categoriesMap = useMemo(
+    () => new Map(categories.map((item) => [item.id, item.name])),
+    [categories],
   )
 
   if (!householdId) {
@@ -262,6 +295,20 @@ export function Bills() {
               onChange={(event) => setDueDate(event.target.value)}
               required
             />
+          </label>
+          <label>
+            Categoria
+            <select
+              value={categoryId}
+              onChange={(event) => setCategoryId(event.target.value)}
+            >
+              <option value="">Sem categoria</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Recorrência
@@ -325,6 +372,9 @@ export function Bills() {
                     <small>
                       {formatCurrency(bill.amount)} • vence em{' '}
                       {formatDate(bill.dueDate)} •{' '}
+                      {categoriesMap.get(bill.categoryId ?? '') ??
+                        'Sem categoria'}{' '}
+                      •{' '}
                       {bill.recurring
                         ? bill.recurringActive
                           ? bill.recurringEndDate

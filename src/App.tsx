@@ -15,6 +15,7 @@ import { People } from './pages/People'
 import { Reports } from './pages/Reports'
 import { Register } from './pages/Register'
 import { UsersAdmin } from './pages/UsersAdmin'
+import { CategoriesAdmin } from './pages/CategoriesAdmin'
 
 function App() {
   return (
@@ -46,6 +47,14 @@ function App() {
           element={
             <AdminRoute>
               <AdminConfig />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="categorias_admin"
+          element={
+            <AdminRoute>
+              <CategoriesAdmin />
             </AdminRoute>
           }
         />

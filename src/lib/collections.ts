@@ -19,3 +19,6 @@ export const debtsCollection = (householdId: string) =>
 
 export const billsCollection = (householdId: string) =>
   collection(db, 'households', householdId, 'bills')
+
+export const categoriesCollection = (householdId: string) =>
+  collection(db, 'households', householdId, 'categories')
