@@ -11,6 +11,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { billsCollection } from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -45,7 +46,7 @@ const addMonths = (dateString: string, monthsToAdd: number) => {
 }
 
 export function Bills() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const [bills, setBills] = useState<Bill[]>([])
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
@@ -59,10 +60,10 @@ export function Bills() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !householdId) return
 
     const billsQuery = query(
-      billsCollection(user.uid),
+      billsCollection(householdId),
       orderBy('dueDate', 'asc'),
     )
 
@@ -84,11 +85,11 @@ export function Bills() {
     })
 
     return () => unsubscribe()
-  }, [user])
+  }, [user, householdId])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!user) return
+    if (!user || !householdId) return
     setLoading(true)
     const editingBill = bills.find((bill) => bill.id === editingBillId)
     const seriesId = isRecurring
@@ -108,9 +109,9 @@ export function Bills() {
     }
 
     if (editingBillId) {
-      await updateDoc(doc(billsCollection(user.uid), editingBillId), payload)
+      await updateDoc(doc(billsCollection(householdId), editingBillId), payload)
     } else {
-      await addDoc(billsCollection(user.uid), {
+      await addDoc(billsCollection(householdId), {
         ...payload,
         createdAt: serverTimestamp(),
       })
@@ -125,9 +126,9 @@ export function Bills() {
   }
 
   const handleToggleStatus = async (bill: Bill) => {
-    if (!user) return
+    if (!user || !householdId) return
     const nextStatus = bill.status === 'aberta' ? 'paga' : 'aberta'
-    await updateDoc(doc(billsCollection(user.uid), bill.id), {
+    await updateDoc(doc(billsCollection(householdId), bill.id), {
       status: nextStatus,
     })
 
@@ -142,7 +143,7 @@ export function Bills() {
         return
       }
       const seriesQuery = query(
-        billsCollection(user.uid),
+        billsCollection(householdId),
         where('seriesId', '==', bill.seriesId),
       )
       const existing = await getDocs(seriesQuery)
@@ -150,7 +151,7 @@ export function Bills() {
         (docItem) => docItem.data().dueDate === nextDueDate,
       )
       if (!alreadyExists) {
-        await addDoc(billsCollection(user.uid), {
+        await addDoc(billsCollection(householdId), {
           title: bill.title,
           amount: bill.amount,
           dueDate: nextDueDate,
@@ -166,8 +167,8 @@ export function Bills() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!user) return
-    await deleteDoc(doc(billsCollection(user.uid), id))
+    if (!user || !householdId) return
+    await deleteDoc(doc(billsCollection(householdId), id))
   }
 
   const handleEdit = (bill: Bill) => {
@@ -189,14 +190,14 @@ export function Bills() {
   }
 
   const handleStopRecurring = async (seriesId: string) => {
-    if (!user || !seriesId) return
+    if (!user || !householdId || !seriesId) return
     const seriesQuery = query(
-      billsCollection(user.uid),
+      billsCollection(householdId),
       where('seriesId', '==', seriesId),
     )
     const snapshot = await getDocs(seriesQuery)
     const updates = snapshot.docs.map((docItem) =>
-      updateDoc(doc(billsCollection(user.uid), docItem.id), {
+      updateDoc(doc(billsCollection(householdId), docItem.id), {
         recurringActive: false,
       }),
     )
@@ -206,6 +207,20 @@ export function Bills() {
   const filteredBills = bills.filter((bill) =>
     bill.dueDate.startsWith(monthFilter),
   )
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para cadastrar contas, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="page">

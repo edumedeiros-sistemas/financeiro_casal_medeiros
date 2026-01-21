@@ -1,5 +1,6 @@
 import { onSnapshot, query, where } from 'firebase/firestore'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { billsCollection, debtsCollection } from '../lib/collections'
 import { formatCurrency } from '../lib/format'
@@ -19,15 +20,15 @@ type Bill = {
 }
 
 export function Dashboard() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const [debts, setDebts] = useState<Debt[]>([])
   const [bills, setBills] = useState<Bill[]>([])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !householdId) return
 
-    const debtsQuery = query(debtsCollection(user.uid))
-    const billsQuery = query(billsCollection(user.uid))
+    const debtsQuery = query(debtsCollection(householdId))
+    const billsQuery = query(billsCollection(householdId))
 
     const unsubscribeDebts = onSnapshot(debtsQuery, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
@@ -53,7 +54,7 @@ export function Dashboard() {
       unsubscribeDebts()
       unsubscribeBills()
     }
-  }, [user])
+  }, [user, householdId])
 
   const openDebts = useMemo(
     () => debts.filter((item) => item.status === 'aberta'),
@@ -230,6 +231,20 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+    )
+  }
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para visualizar o resumo, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
     )
   }
 

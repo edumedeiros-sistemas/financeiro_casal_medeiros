@@ -1,10 +1,25 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
+import { onSnapshot } from 'firebase/firestore'
 import { auth } from '../lib/firebase'
 import { useAuth } from '../context/AuthContext'
+import { householdDoc } from '../lib/collections'
 
 export function AppLayout() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
+  const [householdName, setHouseholdName] = useState('')
+
+  useEffect(() => {
+    if (!householdId) {
+      setHouseholdName('')
+      return
+    }
+    const unsubscribe = onSnapshot(householdDoc(householdId), (snapshot) => {
+      setHouseholdName(snapshot.data()?.name ?? '')
+    })
+    return () => unsubscribe()
+  }, [householdId])
 
   const handleLogout = async () => {
     await signOut(auth)
@@ -14,7 +29,10 @@ export function AppLayout() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <h1>Finanças Casal Medeiros</h1>
+          <h1>
+            Finanças Casal{' '}
+            {householdName ? householdName : 'Medeiros'}
+          </h1>
           <p>Controle financeiro compartilhado</p>
         </div>
         <div className="header-actions">

@@ -2,6 +2,7 @@ import { onSnapshot, orderBy, query } from 'firebase/firestore'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   billsCollection,
@@ -69,7 +70,7 @@ const slugify = (value: string) =>
     .toLowerCase()
 
 export function Reports() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const [people, setPeople] = useState<Person[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
   const [bills, setBills] = useState<Bill[]>([])
@@ -79,11 +80,14 @@ export function Reports() {
   const [detailed, setDetailed] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !householdId) return
 
-    const peopleQuery = query(peopleCollection(user.uid), orderBy('name', 'asc'))
-    const debtsQuery = query(debtsCollection(user.uid))
-    const billsQuery = query(billsCollection(user.uid))
+    const peopleQuery = query(
+      peopleCollection(householdId),
+      orderBy('name', 'asc'),
+    )
+    const debtsQuery = query(debtsCollection(householdId))
+    const billsQuery = query(billsCollection(householdId))
 
     const unsubscribePeople = onSnapshot(peopleQuery, (snapshot) => {
       const data = snapshot.docs.map((docItem) => ({
@@ -127,7 +131,7 @@ export function Reports() {
       unsubscribeDebts()
       unsubscribeBills()
     }
-  }, [user])
+  }, [user, householdId])
 
   const peopleMap = useMemo(
     () => new Map(people.map((person) => [person.id, person.name])),
@@ -370,6 +374,20 @@ export function Reports() {
     })
 
     doc.save(`relatorio-contas-${personSlug}-${dateStamp}.pdf`)
+  }
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para gerar relatórios, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
+    )
   }
 
   return (

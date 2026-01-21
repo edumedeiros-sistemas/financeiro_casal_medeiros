@@ -1,11 +1,19 @@
-import { collection } from 'firebase/firestore'
+import { collection, doc } from 'firebase/firestore'
 import { db } from './firebase'
 
-export const peopleCollection = (uid: string) =>
-  collection(db, 'users', uid, 'people')
+export const householdsCollection = () => collection(db, 'households')
 
-export const debtsCollection = (uid: string) =>
-  collection(db, 'users', uid, 'debts')
+export const householdDoc = (householdId: string) =>
+  doc(db, 'households', householdId)
 
-export const billsCollection = (uid: string) =>
-  collection(db, 'users', uid, 'bills')
+export const userProfileDoc = (uid: string) =>
+  doc(db, 'userProfiles', uid)
+
+export const peopleCollection = (householdId: string) =>
+  collection(db, 'households', householdId, 'people')
+
+export const debtsCollection = (householdId: string) =>
+  collection(db, 'households', householdId, 'debts')
+
+export const billsCollection = (householdId: string) =>
+  collection(db, 'households', householdId, 'bills')

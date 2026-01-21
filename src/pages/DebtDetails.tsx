@@ -26,17 +26,17 @@ type Debt = {
 
 export function DebtDetails() {
   const { groupId } = useParams()
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const [debts, setDebts] = useState<Debt[]>([])
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [bulkLoading, setBulkLoading] = useState(false)
 
   useEffect(() => {
-    if (!user || !groupId) return
+    if (!user || !householdId || !groupId) return
 
     const debtsQuery = query(
-      debtsCollection(user.uid),
+      debtsCollection(householdId),
       where('groupId', '==', groupId),
       orderBy('installmentNumber', 'asc'),
     )
@@ -57,7 +57,7 @@ export function DebtDetails() {
     })
 
     return () => unsubscribe()
-  }, [user, groupId])
+  }, [user, householdId, groupId])
 
   const title = debts[0]?.description ?? 'Parcelas'
   const purchaseDate = debts[0]?.purchaseDate ?? ''
@@ -71,7 +71,7 @@ export function DebtDetails() {
   }, [debts])
 
   const handleToggleStatus = async (debt: Debt) => {
-    if (!user) return
+    if (!user || !householdId) return
     setError('')
     setUpdatingId(debt.id)
     try {
@@ -81,7 +81,7 @@ export function DebtDetails() {
           item.id === debt.id ? { ...item, status: nextStatus } : item,
         ),
       )
-      await updateDoc(doc(debtsCollection(user.uid), debt.id), {
+      await updateDoc(doc(debtsCollection(householdId), debt.id), {
         status: nextStatus,
       })
     } catch (err) {
@@ -98,7 +98,7 @@ export function DebtDetails() {
   }
 
   const handleMarkAllPaid = async () => {
-    if (!user) return
+    if (!user || !householdId) return
     setError('')
     setBulkLoading(true)
     try {
@@ -110,7 +110,9 @@ export function DebtDetails() {
       const updates = debts
         .filter((debt) => debt.status !== 'paga')
         .map((debt) =>
-          updateDoc(doc(debtsCollection(user.uid), debt.id), { status: 'paga' }),
+          updateDoc(doc(debtsCollection(householdId), debt.id), {
+            status: 'paga',
+          }),
         )
       await Promise.all(updates)
     } catch (err) {
@@ -124,6 +126,20 @@ export function DebtDetails() {
     } finally {
       setBulkLoading(false)
     }
+  }
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para acessar as parcelas, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
+    )
   }
 
   return (

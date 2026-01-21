@@ -11,7 +11,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { debtsCollection, peopleCollection } from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -62,7 +62,7 @@ const formatMonthYear = (dateString: string) => {
 }
 
 export function Debts() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const navigate = useNavigate()
   const [people, setPeople] = useState<Person[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
@@ -82,14 +82,14 @@ export function Debts() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !householdId) return
 
     const peopleQuery = query(
-      peopleCollection(user.uid),
+      peopleCollection(householdId),
       orderBy('name', 'asc'),
     )
     const debtsQuery = query(
-      debtsCollection(user.uid),
+      debtsCollection(householdId),
       orderBy('dueDate', 'asc'),
     )
 
@@ -125,7 +125,7 @@ export function Debts() {
       unsubscribePeople()
       unsubscribeDebts()
     }
-  }, [user])
+  }, [user, householdId])
 
   const peopleMap = useMemo(
     () => new Map(people.map((person) => [person.id, person.name])),
@@ -134,7 +134,7 @@ export function Debts() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!user) return
+    if (!user || !householdId) return
     setLoading(true)
     const total = Number(amount)
     const totalInstallments = Math.max(1, Number(installmentsCount) || 1)
@@ -147,18 +147,18 @@ export function Debts() {
 
     if (editingGroupId) {
       const existingQuery = query(
-        debtsCollection(user.uid),
+        debtsCollection(householdId),
         where('groupId', '==', editingGroupId),
       )
       const existingSnapshot = await getDocs(existingQuery)
       const deleteWrites = existingSnapshot.docs.map((docItem) =>
-        deleteDoc(doc(debtsCollection(user.uid), docItem.id)),
+        deleteDoc(doc(debtsCollection(householdId), docItem.id)),
       )
       await Promise.all(deleteWrites)
     }
 
     const writes = Array.from({ length: totalInstallments }, (_, index) =>
-      addDoc(debtsCollection(user.uid), {
+      addDoc(debtsCollection(householdId), {
         personId,
         description: description.trim(),
         amount:
@@ -187,27 +187,27 @@ export function Debts() {
   }
 
   const handleToggleStatus = async (debt: Debt) => {
-    if (!user) return
+    if (!user || !householdId) return
     const nextStatus = debt.status === 'aberta' ? 'paga' : 'aberta'
-    await updateDoc(doc(debtsCollection(user.uid), debt.id), {
+    await updateDoc(doc(debtsCollection(householdId), debt.id), {
       status: nextStatus,
     })
   }
 
   const handleDelete = async (id: string) => {
-    if (!user) return
-    await deleteDoc(doc(debtsCollection(user.uid), id))
+    if (!user || !householdId) return
+    await deleteDoc(doc(debtsCollection(householdId), id))
   }
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!user) return
+    if (!user || !householdId) return
     const groupQuery = query(
-      debtsCollection(user.uid),
+      debtsCollection(householdId),
       where('groupId', '==', groupId),
     )
     const snapshot = await getDocs(groupQuery)
     const deletes = snapshot.docs.map((docItem) =>
-      deleteDoc(doc(debtsCollection(user.uid), docItem.id)),
+      deleteDoc(doc(debtsCollection(householdId), docItem.id)),
     )
     await Promise.all(deletes)
   }
@@ -309,6 +309,20 @@ export function Debts() {
     if (yearFilter === 'all') return availableMonths
     return availableMonths.filter((month) => month.startsWith(yearFilter))
   }, [availableMonths, yearFilter])
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para registrar dívidas, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="page">

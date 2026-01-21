@@ -6,6 +6,7 @@ import { Bills } from './pages/Bills'
 import { Dashboard } from './pages/Dashboard'
 import { DebtDetails } from './pages/DebtDetails'
 import { Debts } from './pages/Debts'
+import { Households } from './pages/Households'
 import { Login } from './pages/Login'
 import { NotFound } from './pages/NotFound'
 import { People } from './pages/People'
@@ -29,6 +30,7 @@ function App() {
         <Route path="dividas/:groupId" element={<DebtDetails />} />
         <Route path="contas" element={<Bills />} />
         <Route path="relatorios" element={<Reports />} />
+        <Route path="casais_medeiros" element={<Households />} />
       </Route>
       <Route
         path="/login"

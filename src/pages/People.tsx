@@ -8,6 +8,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { peopleCollection } from '../lib/collections'
 
@@ -19,7 +20,7 @@ type Person = {
 }
 
 export function People() {
-  const { user } = useAuth()
+  const { user, householdId } = useAuth()
   const [people, setPeople] = useState<Person[]>([])
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -27,10 +28,10 @@ export function People() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !householdId) return
 
     const peopleQuery = query(
-      peopleCollection(user.uid),
+      peopleCollection(householdId),
       orderBy('name', 'asc'),
     )
     const unsubscribe = onSnapshot(peopleQuery, (snapshot) => {
@@ -44,13 +45,13 @@ export function People() {
     })
 
     return () => unsubscribe()
-  }, [user])
+  }, [user, householdId])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!user) return
+    if (!user || !householdId) return
     setLoading(true)
-    await addDoc(peopleCollection(user.uid), {
+    await addDoc(peopleCollection(householdId), {
       name: name.trim(),
       phone: phone.trim(),
       note: note.trim(),
@@ -63,8 +64,22 @@ export function People() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!user) return
-    await deleteDoc(doc(peopleCollection(user.uid), id))
+    if (!user || !householdId) return
+    await deleteDoc(doc(peopleCollection(householdId), id))
+  }
+
+  if (!householdId) {
+    return (
+      <section className="page">
+        <div className="card">
+          <h3>Selecione um household</h3>
+          <p className="muted">
+            Para cadastrar pessoas, escolha um casal em{' '}
+            <Link to="/casais_medeiros">Casais</Link>.
+          </p>
+        </div>
+      </section>
+    )
   }
 
   return (

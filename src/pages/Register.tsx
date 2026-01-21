@@ -1,15 +1,31 @@
-import { useState } from 'react'
+import { onSnapshot, orderBy, query, setDoc } from 'firebase/firestore'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { auth } from '../lib/firebase'
+import { householdsCollection, userProfileDoc } from '../lib/collections'
 
 export function Register() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [households, setHouseholds] = useState<Array<{ id: string; name: string }>>([])
+  const [householdId, setHouseholdId] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const householdsQuery = query(householdsCollection(), orderBy('name', 'asc'))
+    const unsubscribe = onSnapshot(householdsQuery, (snapshot) => {
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        name: docItem.data().name,
+      }))
+      setHouseholds(data)
+    })
+    return () => unsubscribe()
+  }, [])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -24,6 +40,15 @@ export function Register() {
       if (name.trim()) {
         await updateProfile(result.user, { displayName: name.trim() })
       }
+      await setDoc(
+        userProfileDoc(result.user.uid),
+        {
+          email: email.trim(),
+          displayName: name.trim(),
+          householdId: householdId || null,
+        },
+        { merge: true },
+      )
       navigate('/')
     } catch (err) {
       const message =
@@ -80,6 +105,20 @@ export function Register() {
               minLength={6}
               placeholder="mínimo 6 caracteres"
             />
+          </label>
+          <label>
+            Casal
+            <select
+              value={householdId}
+              onChange={(event) => setHouseholdId(event.target.value)}
+            >
+              <option value="">Selecionar depois</option>
+              {households.map((household) => (
+                <option key={household.id} value={household.id}>
+                  {household.name}
+                </option>
+              ))}
+            </select>
           </label>
           {error && <span className="error">{error}</span>}
           <button className="button primary" type="submit" disabled={loading}>
