@@ -15,6 +15,7 @@ import { formatCurrency } from '../lib/format'
 type Person = {
   id: string
   name: string
+  phone?: string
 }
 
 type Debt = {
@@ -109,6 +110,7 @@ export function Reports() {
   const [monthFilter, setMonthFilter] = useState('')
   const [detailed, setDetailed] = useState(false)
   const [onlyOverdue, setOnlyOverdue] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
 
   useEffect(() => {
     if (!user || !householdId) return
@@ -128,6 +130,7 @@ export function Reports() {
       const data = snapshot.docs.map((docItem) => ({
         id: docItem.id,
         name: docItem.data().name,
+        phone: docItem.data().phone || '',
       }))
       setPeople(data)
     })
@@ -337,6 +340,20 @@ export function Reports() {
     return { personLabel, yearLabel, monthLabel }
   }, [personFilter, peopleMap, yearFilter, monthFilter])
 
+  const getWhatsappNumber = (personId: string) => {
+    const person = people.find((item) => item.id === personId)
+    if (!person) return ''
+    const raw = (person as { phone?: string }).phone ?? ''
+    return raw.replace(/\D/g, '')
+  }
+
+  const getWhatsappMessage = () => {
+    const monthLabel = monthFilter
+      ? formatMonthLabel(monthFilter)
+      : 'todos os meses'
+    return `Olá! Segue o relatório das nossas contas (${monthLabel}). Caso precise de algo, estou à disposição.`
+  }
+
   const exportDebtsPdf = async () => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
     await loadPdfFont(doc)
@@ -519,6 +536,32 @@ export function Reports() {
     doc.save(`relatorio-contas-${personSlug}-${dateStamp}.pdf`)
   }
 
+  const handleWhatsappSend = async () => {
+    setActionMessage('')
+    if (personFilter === 'all') {
+      setActionMessage('Selecione uma pessoa para enviar no WhatsApp.')
+      return
+    }
+    const phone = getWhatsappNumber(personFilter)
+    if (!phone) {
+      setActionMessage('A pessoa selecionada não possui telefone cadastrado.')
+      return
+    }
+    await exportDebtsPdf()
+    const message = encodeURIComponent(getWhatsappMessage())
+    const appUrl = `whatsapp://send?phone=${phone}&text=${message}`
+    const webUrl = `https://wa.me/${phone}?text=${message}`
+    setTimeout(() => {
+      window.open(appUrl, '_blank', 'noopener,noreferrer')
+      setTimeout(() => {
+        window.open(webUrl, '_blank', 'noopener,noreferrer')
+      }, 600)
+    }, 400)
+    setActionMessage(
+      'PDF baixado. Agora envie manualmente no WhatsApp aberto.',
+    )
+  }
+
   if (!householdId) {
     return (
       <section className="page">
@@ -552,8 +595,12 @@ export function Reports() {
             <button className="button secondary" onClick={exportBillsPdf}>
               Exportar contas (PDF)
             </button>
+            <button className="button secondary" onClick={handleWhatsappSend}>
+              Enviar por WhatsApp
+            </button>
           </div>
         </div>
+        {actionMessage && <span className="muted">{actionMessage}</span>}
         <div className="grid-2">
           <label className="inline-field">
             Pessoa
