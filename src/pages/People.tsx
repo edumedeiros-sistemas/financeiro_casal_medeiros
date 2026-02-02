@@ -6,6 +6,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -26,6 +27,7 @@ export function People() {
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user || !householdId) return
@@ -51,21 +53,45 @@ export function People() {
     event.preventDefault()
     if (!user || !householdId) return
     setLoading(true)
-    await addDoc(peopleCollection(householdId), {
-      name: name.trim(),
-      phone: phone.trim(),
-      note: note.trim(),
-      createdAt: serverTimestamp(),
-    })
+    if (editingId) {
+      await updateDoc(doc(peopleCollection(householdId), editingId), {
+        name: name.trim(),
+        phone: phone.trim(),
+        note: note.trim(),
+        updatedAt: serverTimestamp(),
+      })
+    } else {
+      await addDoc(peopleCollection(householdId), {
+        name: name.trim(),
+        phone: phone.trim(),
+        note: note.trim(),
+        createdAt: serverTimestamp(),
+      })
+    }
     setName('')
     setPhone('')
     setNote('')
+    setEditingId(null)
     setLoading(false)
   }
 
   const handleDelete = async (id: string) => {
     if (!user || !householdId) return
     await deleteDoc(doc(peopleCollection(householdId), id))
+  }
+
+  const handleEdit = (person: Person) => {
+    setEditingId(person.id)
+    setName(person.name)
+    setPhone(person.phone ?? '')
+    setNote(person.note ?? '')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setName('')
+    setPhone('')
+    setNote('')
   }
 
   if (!householdId) {
@@ -93,7 +119,7 @@ export function People() {
 
       <div className="grid-2">
         <form className="card form" onSubmit={handleSubmit}>
-          <h3>Novo cadastro</h3>
+          <h3>{editingId ? 'Editar pessoa' : 'Novo cadastro'}</h3>
           <label>
             Nome
             <input
@@ -121,8 +147,21 @@ export function People() {
             />
           </label>
           <button className="button primary" type="submit" disabled={loading}>
-            {loading ? 'Salvando...' : 'Salvar'}
+            {loading
+              ? 'Salvando...'
+              : editingId
+                ? 'Atualizar'
+                : 'Salvar'}
           </button>
+          {editingId && (
+            <button
+              className="button secondary"
+              type="button"
+              onClick={handleCancelEdit}
+            >
+              Cancelar
+            </button>
+          )}
         </form>
 
         <div className="card">
@@ -144,6 +183,13 @@ export function People() {
                     type="button"
                   >
                     Remover
+                  </button>
+                  <button
+                    className="button ghost"
+                    onClick={() => handleEdit(person)}
+                    type="button"
+                  >
+                    Editar
                   </button>
                 </li>
               ))}

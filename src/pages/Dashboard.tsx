@@ -32,13 +32,18 @@ export function Dashboard() {
     const billsQuery = query(billsCollection(householdId))
 
     const unsubscribeDebts = onSnapshot(debtsQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        amount: Number(doc.data().amount || 0),
-        paidAmount: Number(doc.data().paidAmount || 0),
-        dueDate: doc.data().dueDate || '',
-        status: doc.data().status,
-      }))
+      const data = snapshot.docs.map((doc) => {
+        const amount = Number(doc.data().amount || 0)
+        const status = doc.data().status as Debt['status']
+        const paidAmount = Number(doc.data().paidAmount || 0)
+        return {
+          id: doc.id,
+          amount,
+          paidAmount: paidAmount > 0 || status !== 'paga' ? paidAmount : amount,
+          dueDate: doc.data().dueDate || '',
+          status,
+        }
+      })
       setDebts(data)
     })
 

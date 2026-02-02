@@ -255,31 +255,61 @@ export function Reports() {
       }
       return true
     })
-  }, [bills, monthFilter, yearFilter])
+  }, [bills, personFilter, monthFilter, yearFilter])
 
-  const debtsByPerson = useMemo(() => {
+  const personSummaries = useMemo(() => {
     const totals = new Map<
       string,
-      { open: number; paid: number; total: number }
-    >()
-    filteredDebts.forEach((debt) => {
-      const current = totals.get(debt.personId) ?? {
-        open: 0,
-        paid: 0,
-        total: 0,
+      {
+        debtsOpen: number
+        debtsPaid: number
+        debtsTotal: number
+        billsOpen: number
+        billsPaid: number
+        billsTotal: number
       }
-      current.paid += debt.paidAmount
-      current.open += Math.max(0, debt.amount - debt.paidAmount)
-      current.total += debt.amount
-      totals.set(debt.personId, current)
+    >()
+    const ensure = (personId: string) => {
+      if (!totals.has(personId)) {
+        totals.set(personId, {
+          debtsOpen: 0,
+          debtsPaid: 0,
+          debtsTotal: 0,
+          billsOpen: 0,
+          billsPaid: 0,
+          billsTotal: 0,
+        })
+      }
+      return totals.get(personId)!
+    }
+
+    filteredDebts.forEach((debt) => {
+      const current = ensure(debt.personId)
+      current.debtsPaid += debt.paidAmount
+      current.debtsOpen += Math.max(0, debt.amount - debt.paidAmount)
+      current.debtsTotal += debt.amount
     })
+
+    filteredBills.forEach((bill) => {
+      if (!bill.personId) return
+      const current = ensure(bill.personId)
+      current.billsTotal += bill.amount
+      if (bill.status === 'paga') {
+        current.billsPaid += bill.amount
+      } else {
+        current.billsOpen += bill.amount
+      }
+    })
+
     return Array.from(totals.entries())
       .map(([personId, values]) => ({
         personId,
         ...values,
+        balance: values.debtsOpen - values.billsOpen,
+        volume: values.debtsTotal + values.billsTotal,
       }))
-      .sort((a, b) => b.total - a.total)
-  }, [filteredDebts])
+      .sort((a, b) => b.volume - a.volume)
+  }, [filteredDebts, filteredBills])
 
   const recurringSeries = useMemo(() => {
     const seriesMap = new Map<
@@ -384,12 +414,23 @@ export function Reports() {
 
     autoTable(doc, {
       startY: headerHeight + 40,
-      head: [['Pessoa', 'Total', 'Em aberto', 'Recebidas']],
-      body: debtsByPerson.map((item) => [
+      head: [
+        [
+          'Pessoa',
+          'Dívidas (total)',
+          'A receber',
+          'Contas (total)',
+          'A pagar',
+          'Saldo',
+        ],
+      ],
+      body: personSummaries.map((item) => [
         peopleMap.get(item.personId) ?? 'Pessoa',
-        formatCurrency(item.total),
-        formatCurrency(item.open),
-        formatCurrency(item.paid),
+        formatCurrency(item.debtsTotal),
+        formatCurrency(item.debtsOpen),
+        formatCurrency(item.billsTotal),
+        formatCurrency(item.billsOpen),
+        formatCurrency(item.balance),
       ]),
       theme: 'striped',
       headStyles: {
@@ -399,6 +440,24 @@ export function Reports() {
       },
       styles: { fontSize: 9, font: 'NotoSans' },
     })
+
+    const summaryEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } })
+      .lastAutoTable?.finalY
+    const selectedSummary =
+      personFilter === 'all'
+        ? null
+        : personSummaries.find((item) => item.personId === personFilter)
+    if (selectedSummary && summaryEndY) {
+      doc.setFontSize(10)
+      doc.text(
+        `Resumo com ${filterSummary.personLabel}: ` +
+          `A receber ${formatCurrency(selectedSummary.debtsOpen)} • ` +
+          `A pagar ${formatCurrency(selectedSummary.billsOpen)} • ` +
+          `Saldo ${formatCurrency(selectedSummary.balance)}`,
+        margin,
+        summaryEndY + 14,
+      )
+    }
 
     if (detailed) {
       const sortedDebts = [...filteredDebts].sort((a, b) =>
@@ -438,6 +497,47 @@ export function Reports() {
         },
         styles: { fontSize: 8, font: 'NotoSans' },
       })
+
+      const sortedBills = [...filteredBills].sort((a, b) =>
+        a.dueDate.localeCompare(b.dueDate),
+      )
+      const afterDebtsY = (
+        doc as jsPDF & { lastAutoTable?: { finalY: number } }
+      ).lastAutoTable?.finalY
+      const billsStartY = afterDebtsY ? afterDebtsY + 16 : headerHeight + 40
+      if (sortedBills.length > 0) {
+        autoTable(doc, {
+          startY: billsStartY,
+          head: [
+            [
+              'Conta',
+              'Categoria',
+              'Pessoa',
+              'Vencimento',
+              'Valor',
+              'Status',
+            ],
+          ],
+          body: sortedBills.map((bill) => [
+            bill.title,
+            categoriesMap.get(bill.categoryId ?? '') ?? 'Sem categoria',
+            bill.personId ? peopleMap.get(bill.personId) ?? 'Pessoa' : '—',
+            bill.dueDate,
+            formatCurrency(bill.amount),
+            bill.status === 'paga' ? 'Paga' : 'Em aberto',
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: [22, 163, 74],
+            textColor: [255, 255, 255],
+            font: 'NotoSans',
+          },
+          styles: { fontSize: 8, font: 'NotoSans' },
+        })
+      } else {
+        doc.setFontSize(10)
+        doc.text('Sem contas para este filtro.', margin, billsStartY + 12)
+      }
     }
 
     doc.save(`relatorio-dividas-${personSlug}-${dateStamp}.pdf`)
@@ -672,18 +772,24 @@ export function Reports() {
 
       <div className="card">
         <h3>Dívidas por pessoa</h3>
-        {debtsByPerson.length === 0 ? (
+        {personSummaries.length === 0 ? (
           <p className="muted">Nenhuma dívida registrada.</p>
         ) : (
           <ul className="list">
-            {debtsByPerson.map((item) => (
+            {personSummaries.map((item) => (
               <li key={item.personId}>
                 <div>
                   <strong>{peopleMap.get(item.personId) ?? 'Pessoa'}</strong>
-                  <small>Total: {formatCurrency(item.total)}</small>
                   <small>
-                    Em aberto: {formatCurrency(item.open)} • Recebidas:{' '}
-                    {formatCurrency(item.paid)}
+                    Dívidas: {formatCurrency(item.debtsTotal)} • A receber:{' '}
+                    {formatCurrency(item.debtsOpen)}
+                  </small>
+                  <small>
+                    Contas: {formatCurrency(item.billsTotal)} • A pagar:{' '}
+                    {formatCurrency(item.billsOpen)}
+                  </small>
+                  <small>
+                    Saldo com a pessoa: {formatCurrency(item.balance)}
                   </small>
                 </div>
               </li>

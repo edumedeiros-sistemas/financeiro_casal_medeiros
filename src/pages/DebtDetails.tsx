@@ -43,18 +43,23 @@ export function DebtDetails() {
     )
 
     const unsubscribe = onSnapshot(debtsQuery, (snapshot) => {
-      const data = snapshot.docs.map((docItem) => ({
-        id: docItem.id,
-        personId: docItem.data().personId,
-        description: docItem.data().description,
-        amount: Number(docItem.data().amount || 0),
-        installmentNumber: Number(docItem.data().installmentNumber || 1),
-        installmentsCount: Number(docItem.data().installmentsCount || 1),
-        purchaseDate: docItem.data().purchaseDate || '',
-        dueDate: docItem.data().dueDate,
-        paidAmount: Number(docItem.data().paidAmount || 0),
-        status: docItem.data().status,
-      }))
+      const data = snapshot.docs.map((docItem) => {
+        const amount = Number(docItem.data().amount || 0)
+        const status = docItem.data().status as Debt['status']
+        const paidAmount = Number(docItem.data().paidAmount || 0)
+        return {
+          id: docItem.id,
+          personId: docItem.data().personId,
+          description: docItem.data().description,
+          amount,
+          installmentNumber: Number(docItem.data().installmentNumber || 1),
+          installmentsCount: Number(docItem.data().installmentsCount || 1),
+          purchaseDate: docItem.data().purchaseDate || '',
+          dueDate: docItem.data().dueDate,
+          paidAmount: paidAmount > 0 || status !== 'paga' ? paidAmount : amount,
+          status,
+        }
+      })
       setDebts(data)
     })
 
