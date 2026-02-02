@@ -2,7 +2,7 @@ import { onSnapshot, orderBy, query } from 'firebase/firestore'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   billsCollection,
@@ -101,6 +101,7 @@ const loadPdfFont = async (doc: jsPDF) => {
 
 export function Reports() {
   const { user, householdId } = useAuth()
+  const [searchParams] = useSearchParams()
   const [people, setPeople] = useState<Person[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
   const [bills, setBills] = useState<Bill[]>([])
@@ -111,6 +112,54 @@ export function Reports() {
   const [detailed, setDetailed] = useState(false)
   const [onlyOverdue, setOnlyOverdue] = useState(false)
   const [actionMessage, setActionMessage] = useState('')
+
+  useEffect(() => {
+    const personParam = searchParams.get('person')
+    const monthParam = searchParams.get('month')
+    const yearParam = searchParams.get('year')
+    const detailedParam = searchParams.get('detailed')
+    const overdueParam = searchParams.get('overdue')
+
+    if (personParam && personParam !== personFilter) {
+      setPersonFilter(personParam)
+    }
+
+    if (monthParam) {
+      if (monthParam !== monthFilter) {
+        setMonthFilter(monthParam)
+      }
+      const derivedYear = monthParam.slice(0, 4)
+      if (derivedYear && derivedYear !== yearFilter) {
+        setYearFilter(derivedYear)
+      }
+    } else if (yearParam && yearParam !== yearFilter) {
+      setYearFilter(yearParam)
+      if (monthFilter) {
+        setMonthFilter('')
+      }
+    }
+
+    if (detailedParam !== null) {
+      const nextDetailed = detailedParam === '1' || detailedParam === 'true'
+      if (nextDetailed !== detailed) {
+        setDetailed(nextDetailed)
+      }
+    }
+
+    if (overdueParam !== null) {
+      const nextOverdue = overdueParam === '1' || overdueParam === 'true'
+      if (nextOverdue !== onlyOverdue) {
+        setOnlyOverdue(nextOverdue)
+      }
+    }
+  }, [
+    searchParams,
+    personFilter,
+    monthFilter,
+    yearFilter,
+    detailed,
+    onlyOverdue,
+  ])
 
   useEffect(() => {
     if (!user || !householdId) return

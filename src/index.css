@@ -119,6 +119,10 @@ img {
   gap: 20px;
 }
 
+.people-grid {
+  grid-template-columns: minmax(320px, 3fr) minmax(320px, 2fr);
+}
+
 .card {
   background: #ffffff;
   border-radius: 16px;
@@ -265,6 +269,18 @@ textarea {
   box-shadow: 0 10px 18px rgba(37, 99, 235, 0.2);
 }
 
+.button.success {
+  background: #16a34a;
+  color: #ffffff;
+  box-shadow: 0 10px 18px rgba(22, 163, 74, 0.2);
+}
+
+.button.danger {
+  background: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 10px 18px rgba(220, 38, 38, 0.2);
+}
+
 .button.secondary {
   background: #f1f5f9;
   color: #0f172a;
@@ -278,6 +294,15 @@ textarea {
 
 .button.ghost.danger {
   color: #b91c1c;
+}
+
+.button.small {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
 }
 
 .button:disabled {
@@ -307,6 +332,71 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.people-list .person-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 16px;
+  text-align: left;
+  justify-items: start;
+}
+
+.person-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  text-align: left;
+  align-items: flex-start;
+}
+
+.person-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.person-meta {
+  color: #475569;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.list li .person-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.person-actions .button {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .people-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .people-list .person-row {
+    grid-template-columns: 1fr;
+  }
+
+  .person-actions {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    margin-left: 0;
+  }
 }
 
 .list-actions {

@@ -8,7 +8,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { peopleCollection } from '../lib/collections'
@@ -28,6 +28,7 @@ export function People() {
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   useEffect(() => {
     if (!user || !householdId) return
@@ -85,6 +86,7 @@ export function People() {
     setName(person.name)
     setPhone(person.phone ?? '')
     setNote(person.note ?? '')
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const handleCancelEdit = () => {
@@ -117,8 +119,8 @@ export function People() {
         </div>
       </header>
 
-      <div className="grid-2">
-        <form className="card form" onSubmit={handleSubmit}>
+      <div className="grid-2 people-grid">
+        <form className="card form" onSubmit={handleSubmit} ref={formRef}>
           <h3>{editingId ? 'Editar pessoa' : 'Novo cadastro'}</h3>
           <label>
             Nome
@@ -169,28 +171,42 @@ export function People() {
           {people.length === 0 ? (
             <p className="muted">Nenhuma pessoa cadastrada ainda.</p>
           ) : (
-            <ul className="list">
+            <ul className="list people-list">
               {people.map((person) => (
-                <li key={person.id}>
-                  <div>
-                    <strong>{person.name}</strong>
-                    {person.phone && <span>{person.phone}</span>}
+                <li key={person.id} className="person-row">
+                  <div className="person-main">
+                    <div className="person-title">
+                      <strong>{person.name}</strong>
+                      {person.phone && (
+                        <span className="person-meta">{person.phone}</span>
+                      )}
+                    </div>
                     {person.note && <small>{person.note}</small>}
                   </div>
-                  <button
-                    className="button ghost"
-                    onClick={() => handleDelete(person.id)}
-                    type="button"
-                  >
-                    Remover
-                  </button>
-                  <button
-                    className="button ghost"
-                    onClick={() => handleEdit(person)}
-                    type="button"
-                  >
-                    Editar
-                  </button>
+                  <div className="person-actions">
+                    <Link
+                      className="button primary small"
+                      to={`/relatorios?person=${encodeURIComponent(
+                        person.id,
+                      )}&detailed=1`}
+                    >
+                      Contas
+                    </Link>
+                    <button
+                      className="button success small"
+                      onClick={() => handleEdit(person)}
+                      type="button"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="button danger small"
+                      onClick={() => handleDelete(person.id)}
+                      type="button"
+                    >
+                      Remover
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
