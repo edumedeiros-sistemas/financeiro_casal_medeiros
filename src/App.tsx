@@ -86,9 +86,9 @@ function App() {
       <Route
         path="/registro_financas"
         element={
-          <PublicOnlyRoute>
-            <Register />
-          </PublicOnlyRoute>
+          <AdminRoute>
+            <Register adminMode />
+          </AdminRoute>
         }
       />
       <Route path="*" element={<NotFound />} />

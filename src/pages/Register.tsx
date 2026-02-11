@@ -1,11 +1,15 @@
-import { onSnapshot, orderBy, query, setDoc } from 'firebase/firestore'
+import { doc, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
-import { auth } from '../lib/firebase'
+import {
+  createUserWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from 'firebase/auth'
+import { auth, secondaryAuth, secondaryDb } from '../lib/firebase'
 import { householdsCollection, userProfileDoc } from '../lib/collections'
 
-export function Register() {
+export function Register({ adminMode = false }: { adminMode?: boolean }) {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -13,6 +17,7 @@ export function Register() {
   const [households, setHouseholds] = useState<Array<{ id: string; name: string }>>([])
   const [householdId, setHouseholdId] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -30,18 +35,23 @@ export function Register() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setMessage('')
     setLoading(true)
     try {
+      const authProvider = adminMode ? secondaryAuth : auth
       const result = await createUserWithEmailAndPassword(
-        auth,
+        authProvider,
         email.trim(),
         password,
       )
       if (name.trim()) {
         await updateProfile(result.user, { displayName: name.trim() })
       }
+      const profileRef = adminMode
+        ? doc(secondaryDb, 'userProfiles', result.user.uid)
+        : userProfileDoc(result.user.uid)
       await setDoc(
-        userProfileDoc(result.user.uid),
+        profileRef,
         {
           email: email.trim(),
           displayName: name.trim(),
@@ -49,7 +59,16 @@ export function Register() {
         },
         { merge: true },
       )
-      navigate('/')
+      if (adminMode) {
+        await signOut(secondaryAuth)
+        setMessage('Usuário cadastrado com sucesso.')
+        setName('')
+        setEmail('')
+        setPassword('')
+        setHouseholdId('')
+      } else {
+        navigate('/')
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message.toLowerCase() : 'erro desconhecido'
@@ -72,6 +91,13 @@ export function Register() {
   return (
     <div className="auth-page">
       <div className="auth-card">
+        {adminMode && (
+          <div className="list-actions">
+            <Link className="button secondary" to="/adm_config">
+              Voltar
+            </Link>
+          </div>
+        )}
         <h1>Finanças Casal Medeiros</h1>
         <p>Crie sua conta para começar.</p>
 
@@ -120,7 +146,8 @@ export function Register() {
               ))}
             </select>
           </label>
-          {error && <span className="error">{error}</span>}
+        {message && <span className="muted">{message}</span>}
+        {error && <span className="error">{error}</span>}
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? 'Criando...' : 'Criar conta'}
           </button>

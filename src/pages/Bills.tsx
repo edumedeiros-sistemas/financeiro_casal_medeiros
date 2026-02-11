@@ -10,7 +10,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -78,6 +78,7 @@ export function Bills() {
     new Date().toISOString().slice(0, 7),
   )
   const [loading, setLoading] = useState(false)
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   useEffect(() => {
     if (!user || !householdId) return
@@ -236,6 +237,7 @@ export function Bills() {
     setRecurringEndDate(bill.recurringEndDate ?? '')
     setCategoryId(bill.categoryId ?? '')
     setPersonId(bill.personId ?? '')
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const handleCancelEdit = () => {
@@ -300,7 +302,7 @@ export function Bills() {
       </header>
 
       <div className="grid-2">
-        <form className="card form" onSubmit={handleSubmit}>
+        <form className="card form" onSubmit={handleSubmit} ref={formRef}>
           <h3>{editingBillId ? 'Editar conta' : 'Nova conta'}</h3>
           <label>
             Conta

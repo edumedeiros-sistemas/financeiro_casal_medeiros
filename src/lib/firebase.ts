@@ -1,5 +1,6 @@
-import { initializeApp } from 'firebase/app'
+import { getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
+import { getFunctions } from 'firebase/functions'
 import { getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -24,6 +25,12 @@ if (missingKeys.length > 0) {
 }
 
 const app = initializeApp(firebaseConfig)
+const secondaryApp =
+  getApps().find((item) => item.name === 'secondary') ??
+  initializeApp(firebaseConfig, 'secondary')
 
 export const auth = getAuth(app)
+export const secondaryAuth = getAuth(secondaryApp)
 export const db = getFirestore(app)
+export const secondaryDb = getFirestore(secondaryApp)
+export const functions = getFunctions(app)

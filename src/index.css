@@ -203,6 +203,12 @@ img {
   text-transform: lowercase;
 }
 
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .form label {
   display: flex;
   flex-direction: column;
