@@ -56,6 +56,15 @@ const addMonths = (dateString: string, monthsToAdd: number) => {
   return `${result.getFullYear()}-${monthString}-${dayString}`
 }
 
+const formatMonthYear = (monthKey: string) => {
+  const [year, month] = monthKey.split('-').map(Number)
+  if (!year || !month) return monthKey
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(year, month - 1, 1))
+}
+
 type Person = {
   id: string
   name: string
@@ -74,9 +83,9 @@ export function Bills() {
   const [categoryId, setCategoryId] = useState('')
   const [personId, setPersonId] = useState('')
   const [categories, setCategories] = useState<Category[]>([])
-  const [monthFilter, setMonthFilter] = useState(
-    new Date().toISOString().slice(0, 7),
-  )
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const [yearFilter, setYearFilter] = useState(currentMonth.slice(0, 4))
+  const [monthFilter, setMonthFilter] = useState(currentMonth)
   const [loading, setLoading] = useState(false)
   const formRef = useRef<HTMLFormElement | null>(null)
 
@@ -266,9 +275,54 @@ export function Bills() {
     await Promise.all(updates)
   }
 
-  const filteredBills = bills.filter((bill) =>
-    bill.dueDate.startsWith(monthFilter),
+  const availableYears = useMemo(() => {
+    const years = new Set<string>()
+    bills.forEach((bill) => {
+      if (bill.dueDate) {
+        years.add(bill.dueDate.slice(0, 4))
+      }
+    })
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [bills])
+
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>()
+    bills.forEach((bill) => {
+      if (bill.dueDate) {
+        months.add(bill.dueDate.slice(0, 7))
+      }
+    })
+    return Array.from(months).sort((a, b) => b.localeCompare(a))
+  }, [bills])
+
+  const filteredBills = bills.filter((bill) => {
+    if (monthFilter) {
+      return bill.dueDate.startsWith(monthFilter)
+    }
+    if (yearFilter) {
+      return bill.dueDate.startsWith(yearFilter)
+    }
+    return true
+  })
+
+  const openBills = useMemo(
+    () => filteredBills.filter((bill) => bill.status !== 'paga'),
+    [filteredBills],
   )
+
+  const totalsByOpen = useMemo(() => {
+    const total = openBills.reduce((sum, bill) => sum + bill.amount, 0)
+    return [['Todos', total]] as Array<[string, number]>
+  }, [openBills])
+
+  const totalsByMonth = useMemo(() => {
+    const totals = new Map<string, number>()
+    filteredBills.forEach((bill) => {
+      const monthKey = bill.dueDate.slice(0, 7)
+      totals.set(monthKey, (totals.get(monthKey) || 0) + bill.amount)
+    })
+    return Array.from(totals.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [filteredBills])
   const categoriesMap = useMemo(
     () => new Map(categories.map((item) => [item.id, item.name])),
     [categories],
@@ -300,6 +354,44 @@ export function Bills() {
           <p>Água, luz, internet e outras despesas fixas.</p>
         </div>
       </header>
+
+      <div className="grid-2">
+        <div className="card">
+          <h3>Total de contas (em aberto)</h3>
+          {totalsByOpen.length === 0 ? (
+            <p className="muted">Nenhuma conta em aberto.</p>
+          ) : (
+            <ul className="list">
+              {totalsByOpen.map(([label, total]) => (
+                <li key={label}>
+                  <div>
+                    <strong>{label}</strong>
+                    <small>{formatCurrency(total)}</small>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="card">
+          <h3>Totais por vencimento</h3>
+          {totalsByMonth.length === 0 ? (
+            <p className="muted">Nenhuma conta em aberto.</p>
+          ) : (
+            <ul className="list">
+              {totalsByMonth.map(([monthKey, total]) => (
+                <li key={monthKey}>
+                  <div>
+                    <strong>{formatMonthYear(monthKey)}</strong>
+                    <small>{formatCurrency(total)}</small>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
 
       <div className="grid-2">
         <form className="card form" onSubmit={handleSubmit} ref={formRef}>
@@ -404,12 +496,39 @@ export function Bills() {
           <div className="card-header-row">
             <h3>Contas cadastradas</h3>
             <label className="inline-field">
+              Ano
+              <select
+                value={yearFilter}
+                onChange={(event) => {
+                  setYearFilter(event.target.value)
+                  setMonthFilter('')
+                }}
+              >
+                <option value="">Todos</option>
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="inline-field">
               Mês
-              <input
-                type="month"
+              <select
                 value={monthFilter}
                 onChange={(event) => setMonthFilter(event.target.value)}
-              />
+              >
+                <option value="">Todos</option>
+                {availableMonths
+                  .filter((month) =>
+                    yearFilter ? month.startsWith(yearFilter) : true,
+                  )
+                  .map((month) => (
+                    <option key={month} value={month}>
+                      {month}
+                    </option>
+                  ))}
+              </select>
             </label>
           </div>
           {filteredBills.length === 0 ? (
