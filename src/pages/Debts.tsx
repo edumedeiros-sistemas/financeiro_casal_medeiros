@@ -11,7 +11,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { debtsCollection, peopleCollection } from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -65,6 +65,7 @@ const formatMonthYear = (dateString: string) => {
 export function Debts() {
   const { user, householdId } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [people, setPeople] = useState<Person[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
   const [personId, setPersonId] = useState('')
@@ -74,12 +75,15 @@ export function Debts() {
   const [purchaseDate, setPurchaseDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
-  const [filterPersonId, setFilterPersonId] = useState('all')
   const now = new Date()
-  const [yearFilter, setYearFilter] = useState(String(now.getFullYear()))
-  const [monthFilter, setMonthFilter] = useState(
-    now.toISOString().slice(0, 7),
-  )
+  const defaultYear = String(now.getFullYear())
+  const defaultMonth = now.toISOString().slice(0, 7)
+  const filterPersonId = searchParams.get('person') ?? 'all'
+  const yearFilter = searchParams.get('year') ?? defaultYear
+  const monthFilter =
+    searchParams.get('month') === null
+      ? defaultMonth
+      : (searchParams.get('month') ?? '')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -493,7 +497,16 @@ export function Debts() {
               Filtrar por pessoa
               <select
                 value={filterPersonId}
-                onChange={(event) => setFilterPersonId(event.target.value)}
+                onChange={(event) => {
+                  setSearchParams(
+                    (prev) => {
+                      const p = new URLSearchParams(prev)
+                      p.set('person', event.target.value)
+                      return p
+                    },
+                    { replace: true },
+                  )
+                }}
               >
                 <option value="all">Todas</option>
                 {people.map((person) => (
@@ -508,8 +521,15 @@ export function Debts() {
               <select
                 value={yearFilter}
                 onChange={(event) => {
-                  setYearFilter(event.target.value)
-                  setMonthFilter('')
+                  setSearchParams(
+                    (prev) => {
+                      const p = new URLSearchParams(prev)
+                      p.set('year', event.target.value)
+                      p.set('month', '')
+                      return p
+                    },
+                    { replace: true },
+                  )
                 }}
               >
                 <option value="all">Todos</option>
@@ -524,7 +544,16 @@ export function Debts() {
               Mês (opcional)
               <select
                 value={monthFilter}
-                onChange={(event) => setMonthFilter(event.target.value)}
+                onChange={(event) => {
+                  setSearchParams(
+                    (prev) => {
+                      const p = new URLSearchParams(prev)
+                      p.set('month', event.target.value)
+                      return p
+                    },
+                    { replace: true },
+                  )
+                }}
               >
                 <option value="">Todos</option>
                 {availableMonthsForYear.map((month) => (
@@ -566,7 +595,16 @@ export function Debts() {
                         <button
                           className="button ghost"
                           type="button"
-                          onClick={() => navigate(`/dividas/${debt.groupId}`)}
+                          onClick={() =>
+                            navigate({
+                              pathname: `/dividas/${debt.groupId}`,
+                              search: `?${new URLSearchParams({
+                                person: filterPersonId,
+                                year: yearFilter,
+                                month: monthFilter,
+                              }).toString()}`,
+                            })
+                          }
                         >
                           {debt.status === 'aberta'
                             ? 'Marcar paga'

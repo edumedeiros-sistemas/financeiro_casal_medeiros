@@ -7,7 +7,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { debtsCollection } from '../lib/collections'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -27,6 +27,7 @@ type Debt = {
 
 export function DebtDetails() {
   const { groupId } = useParams()
+  const location = useLocation()
   const { user, householdId } = useAuth()
   const [debts, setDebts] = useState<Debt[]>([])
   const [error, setError] = useState('')
@@ -211,7 +212,10 @@ export function DebtDetails() {
           </p>
         </div>
         <div className="list-actions">
-          <Link to="/dividas" className="button secondary">
+          <Link
+            to={{ pathname: '/dividas', search: location.search }}
+            className="button secondary"
+          >
             Voltar
           </Link>
           {debts.length > 0 && (
