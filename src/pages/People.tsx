@@ -96,6 +96,11 @@ export function People() {
     setNote('')
   }
 
+  const currentMonthKey = (() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })()
+
   if (!householdId) {
     return (
       <section className="page">
@@ -186,11 +191,9 @@ export function People() {
                   <div className="person-actions">
                     <Link
                       className="button primary small"
-                      to={`/relatorios?person=${encodeURIComponent(
-                        person.id,
-                      )}&detailed=1`}
+                      to={`/relatorios?person=${encodeURIComponent(person.id)}&month=${encodeURIComponent(currentMonthKey)}&category=all&detailed=1`}
                     >
-                      Contas
+                      Dívidas
                     </Link>
                     <button
                       className="button success small"

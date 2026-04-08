@@ -10,7 +10,7 @@ import {
   debtsCollection,
   peopleCollection,
 } from '../lib/collections'
-import { formatCurrency } from '../lib/format'
+import { formatCurrency, formatDate } from '../lib/format'
 
 type Person = {
   id: string
@@ -81,6 +81,12 @@ const slugify = (value: string) =>
     .replace(/(^-|-$)/g, '')
     .toLowerCase()
 
+/**
+ * Ano / mês / categoria em “Nenhum” → listas vazias.
+ * Pessoa em “Nenhum” → não filtra por pessoa nas contas; oculta resumo/lista de dívidas por pessoa.
+ */
+const REPORT_FILTER_NONE = '__report_none__'
+
 let cachedFontData: string | null = null
 
 const loadPdfFont = async (doc: jsPDF) => {
@@ -106,12 +112,14 @@ export function Reports() {
   const [debts, setDebts] = useState<Debt[]>([])
   const [bills, setBills] = useState<Bill[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [personFilter, setPersonFilter] = useState('all')
-  const [yearFilter, setYearFilter] = useState('all')
-  const [monthFilter, setMonthFilter] = useState('')
+  const [personFilter, setPersonFilter] = useState(REPORT_FILTER_NONE)
+  const [yearFilter, setYearFilter] = useState(REPORT_FILTER_NONE)
+  const [monthFilter, setMonthFilter] = useState(REPORT_FILTER_NONE)
+  const [categoryFilter, setCategoryFilter] = useState(REPORT_FILTER_NONE)
   const [detailed, setDetailed] = useState(false)
   const [onlyOverdue, setOnlyOverdue] = useState(false)
   const [actionMessage, setActionMessage] = useState('')
+  const [showBillsDetailed, setShowBillsDetailed] = useState(false)
 
   useEffect(() => {
     const personParam = searchParams.get('person')
@@ -119,9 +127,28 @@ export function Reports() {
     const yearParam = searchParams.get('year')
     const detailedParam = searchParams.get('detailed')
     const overdueParam = searchParams.get('overdue')
+    const categoryParam = searchParams.get('category')
 
     if (personParam && personParam !== personFilter) {
       setPersonFilter(personParam)
+    }
+
+    if (categoryParam !== null) {
+      if (categoryParam === 'all' && categoryFilter !== 'all') {
+        setCategoryFilter('all')
+      } else if (
+        categoryParam === '__none__' &&
+        categoryFilter !== '__none__'
+      ) {
+        setCategoryFilter('__none__')
+      } else if (
+        categoryParam &&
+        categoryParam !== 'all' &&
+        categoryParam !== '__none__' &&
+        categoryParam !== categoryFilter
+      ) {
+        setCategoryFilter(categoryParam)
+      }
     }
 
     if (monthParam) {
@@ -134,8 +161,8 @@ export function Reports() {
       }
     } else if (yearParam && yearParam !== yearFilter) {
       setYearFilter(yearParam)
-      if (monthFilter) {
-        setMonthFilter('')
+      if (monthFilter && monthFilter !== REPORT_FILTER_NONE) {
+        setMonthFilter(REPORT_FILTER_NONE)
       }
     }
 
@@ -157,6 +184,7 @@ export function Reports() {
     personFilter,
     monthFilter,
     yearFilter,
+    categoryFilter,
     detailed,
     onlyOverdue,
   ])
@@ -271,6 +299,12 @@ export function Reports() {
   const filteredDebts = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10)
     return debts.filter((debt) => {
+      if (
+        yearFilter === REPORT_FILTER_NONE ||
+        monthFilter === REPORT_FILTER_NONE
+      ) {
+        return false
+      }
       const remaining = Math.max(0, debt.amount - debt.paidAmount)
       if (onlyOverdue && !(debt.dueDate && debt.dueDate < today)) {
         return false
@@ -278,7 +312,11 @@ export function Reports() {
       if (onlyOverdue && remaining === 0) {
         return false
       }
-      if (personFilter !== 'all' && debt.personId !== personFilter) {
+      if (
+        personFilter !== 'all' &&
+        personFilter !== REPORT_FILTER_NONE &&
+        debt.personId !== personFilter
+      ) {
         return false
       }
       if (monthFilter) {
@@ -293,7 +331,23 @@ export function Reports() {
 
   const filteredBills = useMemo(() => {
     return bills.filter((bill) => {
-      if (personFilter !== 'all' && bill.personId !== personFilter) {
+      if (
+        yearFilter === REPORT_FILTER_NONE ||
+        monthFilter === REPORT_FILTER_NONE ||
+        categoryFilter === REPORT_FILTER_NONE
+      ) {
+        return false
+      }
+      if (categoryFilter === '__none__') {
+        if (bill.categoryId) return false
+      } else if (categoryFilter !== 'all') {
+        if (bill.categoryId !== categoryFilter) return false
+      }
+      if (
+        personFilter !== 'all' &&
+        personFilter !== REPORT_FILTER_NONE &&
+        bill.personId !== personFilter
+      ) {
         return false
       }
       if (monthFilter) {
@@ -304,7 +358,36 @@ export function Reports() {
       }
       return true
     })
-  }, [bills, personFilter, monthFilter, yearFilter])
+  }, [bills, personFilter, monthFilter, yearFilter, categoryFilter])
+
+  const hasReportFiltersApplied = useMemo(() => {
+    const noScope =
+      yearFilter === REPORT_FILTER_NONE &&
+      monthFilter === REPORT_FILTER_NONE &&
+      categoryFilter === REPORT_FILTER_NONE &&
+      !onlyOverdue
+    return !noScope
+  }, [yearFilter, monthFilter, categoryFilter, onlyOverdue])
+
+  const billsDetailedSorted = useMemo(
+    () =>
+      [...filteredBills].sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+    [filteredBills],
+  )
+
+  const billsDetailedTotal = useMemo(
+    () => billsDetailedSorted.reduce((sum, bill) => sum + bill.amount, 0),
+    [billsDetailedSorted],
+  )
+
+  const billsDetailedPaidTotal = useMemo(
+    () =>
+      billsDetailedSorted.reduce(
+        (sum, bill) => sum + (bill.status === 'paga' ? bill.amount : 0),
+        0,
+      ),
+    [billsDetailedSorted],
+  )
 
   const personSummaries = useMemo(() => {
     const totals = new Map<
@@ -367,6 +450,12 @@ export function Reports() {
     >()
     bills
       .filter((bill) => bill.recurring && bill.recurringActive)
+      .filter((bill) => {
+        if (categoryFilter === REPORT_FILTER_NONE) return false
+        if (categoryFilter === 'all') return true
+        if (categoryFilter === '__none__') return !bill.categoryId
+        return bill.categoryId === categoryFilter
+      })
       .forEach((bill) => {
         if (!seriesMap.has(bill.seriesId)) {
           seriesMap.set(bill.seriesId, {
@@ -377,7 +466,7 @@ export function Reports() {
         }
       })
     return Array.from(seriesMap.values())
-  }, [bills])
+  }, [bills, categoryFilter])
 
   const projectionMonths = useMemo(() => {
     const start = new Date()
@@ -387,6 +476,12 @@ export function Reports() {
   }, [])
 
   const filteredProjectionMonths = useMemo(() => {
+    if (
+      yearFilter === REPORT_FILTER_NONE ||
+      monthFilter === REPORT_FILTER_NONE
+    ) {
+      return []
+    }
     return projectionMonths.filter((monthKey) => {
       if (monthFilter) return monthKey === monthFilter
       if (yearFilter !== 'all') return monthKey.startsWith(yearFilter)
@@ -411,13 +506,33 @@ export function Reports() {
 
   const filterSummary = useMemo(() => {
     const personLabel =
-      personFilter === 'all'
-        ? 'Todos'
-        : peopleMap.get(personFilter) ?? 'Pessoa'
-    const yearLabel = yearFilter === 'all' ? 'Todos' : yearFilter
-    const monthLabel = monthFilter ? formatMonthLabel(monthFilter) : 'Todos'
-    return { personLabel, yearLabel, monthLabel }
-  }, [personFilter, peopleMap, yearFilter, monthFilter])
+      personFilter === REPORT_FILTER_NONE
+        ? 'Nenhum'
+        : personFilter === 'all'
+          ? 'Todos'
+          : peopleMap.get(personFilter) ?? 'Pessoa'
+    const yearLabel =
+      yearFilter === REPORT_FILTER_NONE
+        ? 'Nenhum'
+        : yearFilter === 'all'
+          ? 'Todos'
+          : yearFilter
+    const monthLabel =
+      monthFilter === REPORT_FILTER_NONE
+        ? 'Nenhum'
+        : monthFilter
+          ? formatMonthLabel(monthFilter)
+          : 'Todos'
+    const categoryLabel =
+      categoryFilter === REPORT_FILTER_NONE
+        ? 'Nenhum'
+        : categoryFilter === 'all'
+          ? 'Todas'
+          : categoryFilter === '__none__'
+            ? 'Sem categoria'
+            : categoriesMap.get(categoryFilter) ?? 'Categoria'
+    return { personLabel, yearLabel, monthLabel, categoryLabel }
+  }, [personFilter, peopleMap, yearFilter, monthFilter, categoryFilter, categoriesMap])
 
   const getWhatsappNumber = (personId: string) => {
     const person = people.find((item) => item.id === personId)
@@ -427,9 +542,12 @@ export function Reports() {
   }
 
   const getWhatsappMessage = () => {
-    const monthLabel = monthFilter
-      ? formatMonthLabel(monthFilter)
-      : 'todos os meses'
+    const monthLabel =
+      monthFilter === REPORT_FILTER_NONE
+        ? 'Nenhum'
+        : monthFilter
+          ? formatMonthLabel(monthFilter)
+          : 'todos os meses'
     return `Olá! Segue o relatório das nossas contas (${monthLabel}). Caso precise de algo, estou à disposição.`
   }
 
@@ -456,44 +574,57 @@ export function Reports() {
     doc.setTextColor(15, 23, 42)
     doc.setFontSize(11)
     doc.text(
-      `Pessoa: ${filterSummary.personLabel} • Ano: ${filterSummary.yearLabel} • Mês: ${filterSummary.monthLabel}`,
+      `Pessoa: ${filterSummary.personLabel} • Ano: ${filterSummary.yearLabel} • Mês: ${filterSummary.monthLabel} • Categoria: ${filterSummary.categoryLabel}`,
       margin,
       headerHeight + 24,
     )
 
-    autoTable(doc, {
-      startY: headerHeight + 40,
-      head: [
-        [
-          'Pessoa',
-          'Dívidas (total)',
-          'A receber',
-          'Contas (total)',
-          'A pagar',
-          'Saldo',
-        ],
-      ],
-      body: personSummaries.map((item) => [
-        peopleMap.get(item.personId) ?? 'Pessoa',
-        formatCurrency(item.debtsTotal),
-        formatCurrency(item.debtsOpen),
-        formatCurrency(item.billsTotal),
-        formatCurrency(item.billsOpen),
-        formatCurrency(item.balance),
-      ]),
-      theme: 'striped',
-      headStyles: {
-        fillColor: [15, 23, 42],
-        textColor: [255, 255, 255],
-        font: 'NotoSans',
-      },
-      styles: { fontSize: 9, font: 'NotoSans' },
-    })
+    let summaryEndY = headerHeight + 40
 
-    const summaryEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-      .lastAutoTable?.finalY
+    if (personFilter !== REPORT_FILTER_NONE) {
+      autoTable(doc, {
+        startY: headerHeight + 40,
+        head: [
+          [
+            'Pessoa',
+            'Dívidas (total)',
+            'A receber',
+            'Contas (total)',
+            'A pagar',
+            'Saldo',
+          ],
+        ],
+        body: personSummaries.map((item) => [
+          peopleMap.get(item.personId) ?? 'Pessoa',
+          formatCurrency(item.debtsTotal),
+          formatCurrency(item.debtsOpen),
+          formatCurrency(item.billsTotal),
+          formatCurrency(item.billsOpen),
+          formatCurrency(item.balance),
+        ]),
+        theme: 'striped',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          font: 'NotoSans',
+        },
+        styles: { fontSize: 9, font: 'NotoSans' },
+      })
+      summaryEndY =
+        (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
+          ?.finalY ?? headerHeight + 40
+    } else {
+      doc.setFontSize(10)
+      doc.text(
+        'Resumo por pessoa omitido (Pessoa: Nenhum — use contas detalhadas ou exportação de contas).',
+        margin,
+        headerHeight + 44,
+      )
+      summaryEndY = headerHeight + 62
+    }
+
     const selectedSummary =
-      personFilter === 'all'
+      personFilter === 'all' || personFilter === REPORT_FILTER_NONE
         ? null
         : personSummaries.find((item) => item.personId === personFilter)
     if (selectedSummary && summaryEndY) {
@@ -509,51 +640,54 @@ export function Reports() {
     }
 
     if (detailed) {
-      const sortedDebts = [...filteredDebts].sort((a, b) =>
-        a.dueDate.localeCompare(b.dueDate),
-      )
-      autoTable(doc, {
-        startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-          .lastAutoTable?.finalY
-          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-              .lastAutoTable!.finalY + 16
-          : headerHeight + 40,
-        head: [
-          [
-            'Pessoa',
-            'Descrição',
-            'Parcela',
-            'Vencimento',
-            'Valor',
-            'Pago',
-            'Saldo',
+      if (personFilter !== REPORT_FILTER_NONE) {
+        const sortedDebts = [...filteredDebts].sort((a, b) =>
+          a.dueDate.localeCompare(b.dueDate),
+        )
+        autoTable(doc, {
+          startY: summaryEndY + (selectedSummary ? 28 : 16),
+          head: [
+            [
+              'Pessoa',
+              'Descrição',
+              'Parcela',
+              'Vencimento',
+              'Valor',
+              'Pago',
+              'Saldo',
+            ],
           ],
-        ],
-        body: sortedDebts.map((debt) => [
-          peopleMap.get(debt.personId) ?? 'Pessoa',
-          debt.description,
-          `${debt.installmentNumber}/${debt.installmentsCount}`,
-          debt.dueDate,
-          formatCurrency(debt.amount),
-          formatCurrency(debt.paidAmount),
-          formatCurrency(Math.max(0, debt.amount - debt.paidAmount)),
-        ]),
-        theme: 'grid',
-        headStyles: {
-          fillColor: [37, 99, 235],
-          textColor: [255, 255, 255],
-          font: 'NotoSans',
-        },
-        styles: { fontSize: 8, font: 'NotoSans' },
-      })
+          body: sortedDebts.map((debt) => [
+            peopleMap.get(debt.personId) ?? 'Pessoa',
+            debt.description,
+            `${debt.installmentNumber}/${debt.installmentsCount}`,
+            debt.dueDate,
+            formatCurrency(debt.amount),
+            formatCurrency(debt.paidAmount),
+            formatCurrency(Math.max(0, debt.amount - debt.paidAmount)),
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: [37, 99, 235],
+            textColor: [255, 255, 255],
+            font: 'NotoSans',
+          },
+          styles: { fontSize: 8, font: 'NotoSans' },
+        })
+      }
 
       const sortedBills = [...filteredBills].sort((a, b) =>
         a.dueDate.localeCompare(b.dueDate),
       )
-      const afterDebtsY = (
-        doc as jsPDF & { lastAutoTable?: { finalY: number } }
-      ).lastAutoTable?.finalY
-      const billsStartY = afterDebtsY ? afterDebtsY + 16 : headerHeight + 40
+      const afterDebtsY =
+        personFilter !== REPORT_FILTER_NONE
+          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
+              .lastAutoTable?.finalY
+          : undefined
+      const billsStartY =
+        personFilter !== REPORT_FILTER_NONE && afterDebtsY
+          ? afterDebtsY + 16
+          : summaryEndY + (selectedSummary ? 28 : 16)
       if (sortedBills.length > 0) {
         autoTable(doc, {
           startY: billsStartY,
@@ -615,7 +749,7 @@ export function Reports() {
     doc.setTextColor(15, 23, 42)
     doc.setFontSize(11)
     doc.text(
-      `Ano: ${filterSummary.yearLabel} • Mês: ${filterSummary.monthLabel}`,
+      `Pessoa: ${filterSummary.personLabel} • Ano: ${filterSummary.yearLabel} • Mês: ${filterSummary.monthLabel} • Categoria: ${filterSummary.categoryLabel}`,
       margin,
       headerHeight + 24,
     )
@@ -687,7 +821,10 @@ export function Reports() {
 
   const handleWhatsappSend = async () => {
     setActionMessage('')
-    if (personFilter === 'all') {
+    if (
+      personFilter === 'all' ||
+      personFilter === REPORT_FILTER_NONE
+    ) {
       setActionMessage('Selecione uma pessoa para enviar no WhatsApp.')
       return
     }
@@ -757,6 +894,7 @@ export function Reports() {
               value={personFilter}
               onChange={(event) => setPersonFilter(event.target.value)}
             >
+              <option value={REPORT_FILTER_NONE}>Nenhum</option>
               <option value="all">Todos</option>
               {people.map((person) => (
                 <option key={person.id} value={person.id}>
@@ -771,9 +909,10 @@ export function Reports() {
               value={yearFilter}
               onChange={(event) => {
                 setYearFilter(event.target.value)
-                setMonthFilter('')
+                setMonthFilter(REPORT_FILTER_NONE)
               }}
             >
+              <option value={REPORT_FILTER_NONE}>Nenhum</option>
               <option value="all">Todos</option>
               {availableYears.map((year) => (
                 <option key={year} value={year}>
@@ -788,10 +927,13 @@ export function Reports() {
               value={monthFilter}
               onChange={(event) => setMonthFilter(event.target.value)}
             >
+              <option value={REPORT_FILTER_NONE}>Nenhum</option>
               <option value="">Todos</option>
               {availableMonths
                 .filter((month) =>
-                  yearFilter === 'all' ? true : month.startsWith(yearFilter),
+                  yearFilter === 'all' || yearFilter === REPORT_FILTER_NONE
+                    ? true
+                    : month.startsWith(yearFilter),
                 )
                 .map((month) => (
                   <option key={month} value={month}>
@@ -801,11 +943,35 @@ export function Reports() {
             </select>
           </label>
           <label className="inline-field">
+            Categoria
+            <select
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+            >
+              <option value={REPORT_FILTER_NONE}>Nenhum</option>
+              <option value="all">Todas</option>
+              <option value="__none__">Sem categoria</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
             Relatório detalhado
             <input
               type="checkbox"
               checked={detailed}
               onChange={(event) => setDetailed(event.target.checked)}
+            />
+          </label>
+          <label className="inline-field">
+            Contas detalhadas
+            <input
+              type="checkbox"
+              checked={showBillsDetailed}
+              onChange={(event) => setShowBillsDetailed(event.target.checked)}
             />
           </label>
           <label className="inline-field">
@@ -819,35 +985,55 @@ export function Reports() {
         </div>
       </div>
 
-      <div className="card">
-        <h3>Dívidas por pessoa</h3>
-        {personSummaries.length === 0 ? (
-          <p className="muted">Nenhuma dívida registrada.</p>
-        ) : (
-          <ul className="list">
-            {personSummaries.map((item) => (
-              <li key={item.personId}>
-                <div>
-                  <strong>{peopleMap.get(item.personId) ?? 'Pessoa'}</strong>
-                  <small>
-                    Dívidas: {formatCurrency(item.debtsTotal)} • A receber:{' '}
-                    {formatCurrency(item.debtsOpen)}
-                  </small>
-                  <small>
-                    Contas: {formatCurrency(item.billsTotal)} • A pagar:{' '}
-                    {formatCurrency(item.billsOpen)}
-                  </small>
-                  <small>
-                    Saldo com a pessoa: {formatCurrency(item.balance)}
-                  </small>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {!hasReportFiltersApplied && (
+        <p className="muted">
+          O resumo <strong>Dívidas por pessoa</strong> aparece quando você
+          escolhe ano, mês ou categoria (ou marca somente dívidas vencidas). Com{' '}
+          <strong>Pessoa</strong> em <strong>Nenhum</strong>, esse resumo e as
+          dívidas detalhadas ficam ocultos (foco em contas).{' '}
+          <strong>Nenhum</strong> em ano, mês ou categoria deixa listas vazias.
+        </p>
+      )}
 
-      {detailed && (
+      {hasReportFiltersApplied && personFilter === REPORT_FILTER_NONE && (
+        <p className="muted">
+          <strong>Pessoa</strong> em <strong>Nenhum</strong>: sem resumo por
+          pessoa nem lista de dívidas — use <strong>Contas detalhadas</strong>{' '}
+          (e exportação de contas) para ver contas com os filtros atuais.
+        </p>
+      )}
+
+      {hasReportFiltersApplied && personFilter !== REPORT_FILTER_NONE && (
+        <div className="card">
+          <h3>Dívidas por pessoa</h3>
+          {personSummaries.length === 0 ? (
+            <p className="muted">Nenhum dado para estes filtros.</p>
+          ) : (
+            <ul className="list">
+              {personSummaries.map((item) => (
+                <li key={item.personId}>
+                  <div>
+                    <strong>{peopleMap.get(item.personId) ?? 'Pessoa'}</strong>
+                    <small>
+                      Dívidas: {formatCurrency(item.debtsTotal)} • A receber:{' '}
+                      {formatCurrency(item.debtsOpen)}
+                    </small>
+                    <small>
+                      Contas: {formatCurrency(item.billsTotal)} • A pagar:{' '}
+                      {formatCurrency(item.billsOpen)}
+                    </small>
+                    <small>
+                      Saldo com a pessoa: {formatCurrency(item.balance)}
+                    </small>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {detailed && personFilter !== REPORT_FILTER_NONE && (
         <div className="card">
           <h3>Dívidas detalhadas</h3>
           {filteredDebts.length === 0 ? (
@@ -874,6 +1060,59 @@ export function Reports() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {showBillsDetailed && (
+        <div className="card">
+          <h3>Contas detalhadas</h3>
+          <p className="muted">
+            Usa os mesmos filtros da seção Filtros acima:{' '}
+            <strong>Pessoa</strong>, <strong>Ano</strong>, <strong>Mês</strong> e{' '}
+            <strong>Categoria</strong>.
+          </p>
+          {billsDetailedSorted.length === 0 ? (
+            <p className="muted">Nenhuma conta para estes filtros.</p>
+          ) : (
+            <>
+              <ul className="list">
+                {billsDetailedSorted.map((bill) => (
+                  <li key={bill.id}>
+                    <div>
+                      <strong>{bill.title}</strong>
+                      <span>
+                        {categoriesMap.get(bill.categoryId ?? '') ??
+                          'Sem categoria'}
+                        {bill.personId
+                          ? ` • ${peopleMap.get(bill.personId) ?? 'Pessoa'}`
+                          : ''}
+                      </span>
+                      <small>
+                        {formatCurrency(bill.amount)} • vence{' '}
+                        {formatDate(bill.dueDate)} •{' '}
+                        {bill.status === 'paga' ? 'Paga' : 'Em aberto'}
+                        {bill.recurring
+                          ? bill.recurringActive
+                            ? bill.recurringEndDate
+                              ? ` • Recorrente até ${formatDate(bill.recurringEndDate)}`
+                              : ' • Recorrente'
+                            : ' • Recorrência encerrada'
+                          : ''}
+                      </small>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">
+                Total no período:{' '}
+                <strong>{formatCurrency(billsDetailedTotal)}</strong>
+              </p>
+              <p className="muted">
+                Pago no período:{' '}
+                <strong>{formatCurrency(billsDetailedPaidTotal)}</strong>
+              </p>
+            </>
           )}
         </div>
       )}

@@ -65,6 +65,116 @@ const formatMonthYear = (monthKey: string) => {
   }).format(new Date(year, month - 1, 1))
 }
 
+const PROSPECTION_MONTHS = 12
+
+/** Próximos `count` meses (YYYY-MM) a partir de `from` (1º do mês). */
+const monthKeysFrom = (from: Date, count: number) =>
+  Array.from({ length: count }, (_, i) => {
+    const x = new Date(from.getFullYear(), from.getMonth() + i, 1)
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`
+  })
+
+const isVirtualBillId = (id: string) => id.startsWith('virt:')
+
+/** Vencimento no mês `monthKey`, mantendo o dia de referência (clamp ao fim do mês). */
+const dueDateForMonth = (monthKey: string, anchorDue: string) => {
+  const day = Number(anchorDue.slice(8, 10))
+  const [y, m] = monthKey.split('-').map(Number)
+  if (!y || !m || !day) return `${monthKey}-01`
+  const dim = new Date(y, m, 0).getDate()
+  const d = Math.min(day, dim)
+  return `${monthKey}-${String(d).padStart(2, '0')}`
+}
+
+/**
+ * Contas recorrentes ativas sem documento em `monthKey` (projeção mensal).
+ * Usa o primeiro vencimento da série para o intervalo e o último lançamento como modelo de valor/título.
+ */
+const virtualBillsForMonth = (bills: Bill[], monthKey: string): Bill[] => {
+  const groups = new Map<string, Bill[]>()
+  for (const b of bills) {
+    if (!b.recurring || !b.recurringActive || !b.seriesId) continue
+    if (!groups.has(b.seriesId)) groups.set(b.seriesId, [])
+    groups.get(b.seriesId)!.push(b)
+  }
+
+  const virtuals: Bill[] = []
+  for (const [seriesId, group] of groups) {
+    const sorted = [...group].sort((a, b) =>
+      a.dueDate.localeCompare(b.dueDate),
+    )
+    const firstDue = sorted[0].dueDate
+    if (!firstDue || firstDue.length < 7) continue
+    const firstMonth = firstDue.slice(0, 7)
+    if (monthKey < firstMonth) continue
+    const endRaw = sorted[0].recurringEndDate
+    if (endRaw && endRaw.length >= 7) {
+      const endMonth = endRaw.slice(0, 7)
+      if (monthKey > endMonth) continue
+    }
+    if (group.some((b) => b.dueDate.startsWith(monthKey))) continue
+
+    const template = sorted[sorted.length - 1]
+    virtuals.push({
+      id: `virt:${seriesId}:${monthKey}`,
+      title: template.title,
+      amount: template.amount,
+      dueDate: dueDateForMonth(monthKey, firstDue),
+      recurring: true,
+      recurringActive: true,
+      seriesId,
+      recurringEndDate: template.recurringEndDate,
+      categoryId: template.categoryId,
+      personId: template.personId,
+      status: 'aberta',
+    })
+  }
+  return virtuals
+}
+
+async function ensureNextRecurringBill(
+  householdId: string,
+  bill: Pick<
+    Bill,
+    | 'dueDate'
+    | 'title'
+    | 'amount'
+    | 'seriesId'
+    | 'recurringEndDate'
+    | 'categoryId'
+    | 'personId'
+    | 'recurring'
+    | 'recurringActive'
+  >,
+) {
+  if (!bill.recurring || !bill.recurringActive || !bill.seriesId) return
+  const nextDueDate = addMonths(bill.dueDate, 1)
+  if (bill.recurringEndDate && nextDueDate > bill.recurringEndDate) return
+  const seriesQuery = query(
+    billsCollection(householdId),
+    where('seriesId', '==', bill.seriesId),
+  )
+  const existing = await getDocs(seriesQuery)
+  const alreadyExists = existing.docs.some(
+    (docItem) => docItem.data().dueDate === nextDueDate,
+  )
+  if (!alreadyExists) {
+    await addDoc(billsCollection(householdId), {
+      title: bill.title,
+      amount: bill.amount,
+      dueDate: nextDueDate,
+      recurring: true,
+      recurringActive: true,
+      seriesId: bill.seriesId,
+      recurringEndDate: bill.recurringEndDate ?? '',
+      categoryId: bill.categoryId ?? '',
+      personId: bill.personId ?? '',
+      status: 'aberta',
+      createdAt: serverTimestamp(),
+    })
+  }
+}
+
 type Person = {
   id: string
   name: string
@@ -192,52 +302,42 @@ export function Bills() {
   const handleToggleStatus = async (bill: Bill) => {
     if (!user || !householdId) return
     const nextStatus = bill.status === 'aberta' ? 'paga' : 'aberta'
+
+    if (isVirtualBillId(bill.id)) {
+      if (nextStatus === 'aberta') return
+      await addDoc(billsCollection(householdId), {
+        title: bill.title,
+        amount: bill.amount,
+        dueDate: bill.dueDate,
+        recurring: bill.recurring,
+        recurringActive: bill.recurringActive,
+        seriesId: bill.seriesId,
+        recurringEndDate: bill.recurringEndDate ?? '',
+        categoryId: bill.categoryId ?? '',
+        personId: bill.personId ?? '',
+        status: 'paga',
+        createdAt: serverTimestamp(),
+      })
+      await ensureNextRecurringBill(householdId, bill)
+      return
+    }
+
     await updateDoc(doc(billsCollection(householdId), bill.id), {
       status: nextStatus,
     })
 
-    if (
-      nextStatus === 'paga' &&
-      bill.recurring &&
-      bill.recurringActive &&
-      bill.seriesId
-    ) {
-      const nextDueDate = addMonths(bill.dueDate, 1)
-      if (bill.recurringEndDate && nextDueDate > bill.recurringEndDate) {
-        return
-      }
-      const seriesQuery = query(
-        billsCollection(householdId),
-        where('seriesId', '==', bill.seriesId),
-      )
-      const existing = await getDocs(seriesQuery)
-      const alreadyExists = existing.docs.some(
-        (docItem) => docItem.data().dueDate === nextDueDate,
-      )
-      if (!alreadyExists) {
-        await addDoc(billsCollection(householdId), {
-          title: bill.title,
-          amount: bill.amount,
-          dueDate: nextDueDate,
-          recurring: true,
-          recurringActive: true,
-          seriesId: bill.seriesId,
-          recurringEndDate: bill.recurringEndDate ?? '',
-          categoryId: bill.categoryId ?? '',
-          personId: bill.personId ?? '',
-          status: 'aberta',
-          createdAt: serverTimestamp(),
-        })
-      }
+    if (nextStatus === 'paga') {
+      await ensureNextRecurringBill(householdId, bill)
     }
   }
 
   const handleDelete = async (id: string) => {
-    if (!user || !householdId) return
+    if (!user || !householdId || isVirtualBillId(id)) return
     await deleteDoc(doc(billsCollection(householdId), id))
   }
 
   const handleEdit = (bill: Bill) => {
+    if (isVirtualBillId(bill.id)) return
     setEditingBillId(bill.id)
     setTitle(bill.title)
     setAmount(String(bill.amount))
@@ -282,28 +382,50 @@ export function Bills() {
         years.add(bill.dueDate.slice(0, 4))
       }
     })
+    monthKeysFrom(new Date(), PROSPECTION_MONTHS).forEach((key) => {
+      years.add(key.slice(0, 4))
+    })
     return Array.from(years).sort((a, b) => b.localeCompare(a))
   }, [bills])
 
   const availableMonths = useMemo(() => {
     const months = new Set<string>()
     bills.forEach((bill) => {
-      if (bill.dueDate) {
+      if (bill.dueDate && bill.dueDate.length >= 7) {
         months.add(bill.dueDate.slice(0, 7))
       }
     })
+    monthKeysFrom(new Date(), PROSPECTION_MONTHS).forEach((key) =>
+      months.add(key),
+    )
     return Array.from(months).sort((a, b) => b.localeCompare(a))
   }, [bills])
 
-  const filteredBills = bills.filter((bill) => {
+  const filteredBills = useMemo(() => {
+    const base = bills.filter((bill) => {
+      if (monthFilter) {
+        return bill.dueDate.startsWith(monthFilter)
+      }
+      if (yearFilter) {
+        return bill.dueDate.startsWith(yearFilter)
+      }
+      return true
+    })
+
+    const extras: Bill[] = []
     if (monthFilter) {
-      return bill.dueDate.startsWith(monthFilter)
+      extras.push(...virtualBillsForMonth(bills, monthFilter))
+    } else if (yearFilter) {
+      for (let i = 1; i <= 12; i++) {
+        const mk = `${yearFilter}-${String(i).padStart(2, '0')}`
+        extras.push(...virtualBillsForMonth(bills, mk))
+      }
     }
-    if (yearFilter) {
-      return bill.dueDate.startsWith(yearFilter)
-    }
-    return true
-  })
+
+    return [...base, ...extras].sort((a, b) =>
+      a.dueDate.localeCompare(b.dueDate),
+    )
+  }, [bills, monthFilter, yearFilter])
 
   const openBills = useMemo(
     () => filteredBills.filter((bill) => bill.status !== 'paga'),
@@ -316,13 +438,35 @@ export function Bills() {
   }, [openBills])
 
   const totalsByMonth = useMemo(() => {
-    const totals = new Map<string, number>()
-    filteredBills.forEach((bill) => {
-      const monthKey = bill.dueDate.slice(0, 7)
-      totals.set(monthKey, (totals.get(monthKey) || 0) + bill.amount)
+    let keysOrdered: string[]
+    if (monthFilter) {
+      keysOrdered = [monthFilter]
+    } else if (yearFilter) {
+      keysOrdered = Array.from({ length: 12 }, (_, i) =>
+        `${yearFilter}-${String(i + 1).padStart(2, '0')}`,
+      )
+    } else {
+      const horizon = monthKeysFrom(new Date(), PROSPECTION_MONTHS)
+      const keySet = new Set(horizon)
+      bills.forEach((b) => {
+        if (b.dueDate && b.dueDate.length >= 7) {
+          keySet.add(b.dueDate.slice(0, 7))
+        }
+      })
+      keysOrdered = Array.from(keySet).sort((a, b) => a.localeCompare(b))
+    }
+
+    return keysOrdered.map((key) => {
+      const realSum = bills
+        .filter((b) => b.dueDate?.startsWith(key))
+        .reduce((s, b) => s + b.amount, 0)
+      const virtSum = virtualBillsForMonth(bills, key).reduce(
+        (s, b) => s + b.amount,
+        0,
+      )
+      return [key, realSum + virtSum] as [string, number]
     })
-    return Array.from(totals.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [filteredBills])
+  }, [bills, monthFilter, yearFilter])
   const categoriesMap = useMemo(
     () => new Map(categories.map((item) => [item.id, item.name])),
     [categories],
@@ -376,20 +520,16 @@ export function Bills() {
 
         <div className="card">
           <h3>Totais por vencimento</h3>
-          {totalsByMonth.length === 0 ? (
-            <p className="muted">Nenhuma conta em aberto.</p>
-          ) : (
-            <ul className="list">
-              {totalsByMonth.map(([monthKey, total]) => (
-                <li key={monthKey}>
-                  <div>
-                    <strong>{formatMonthYear(monthKey)}</strong>
-                    <small>{formatCurrency(total)}</small>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul className="list">
+            {totalsByMonth.map(([monthKey, total]) => (
+              <li key={monthKey}>
+                <div>
+                  <strong>{formatMonthYear(monthKey)}</strong>
+                  <small>{formatCurrency(total)}</small>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
@@ -525,7 +665,7 @@ export function Bills() {
                   )
                   .map((month) => (
                     <option key={month} value={month}>
-                      {month}
+                      {formatMonthYear(month)}
                     </option>
                   ))}
               </select>
@@ -557,6 +697,7 @@ export function Bills() {
                             : 'recorrente'
                           : 'recorrência encerrada'
                         : 'única'}
+                      {isVirtualBillId(bill.id) ? ' • projetada' : ''}
                     </small>
                   </div>
                   <div className="list-actions">
@@ -567,13 +708,15 @@ export function Bills() {
                     >
                       {bill.status === 'aberta' ? 'Marcar paga' : 'Reabrir'}
                     </button>
-                    <button
-                      className="button ghost"
-                      type="button"
-                      onClick={() => handleEdit(bill)}
-                    >
-                      Editar
-                    </button>
+                    {!isVirtualBillId(bill.id) && (
+                      <button
+                        className="button ghost"
+                        type="button"
+                        onClick={() => handleEdit(bill)}
+                      >
+                        Editar
+                      </button>
+                    )}
                     {bill.recurring && bill.recurringActive && (
                       <button
                         className="button ghost"
@@ -583,13 +726,15 @@ export function Bills() {
                         Parar recorrência
                       </button>
                     )}
-                    <button
-                      className="button ghost danger"
-                      type="button"
-                      onClick={() => handleDelete(bill.id)}
-                    >
-                      Remover
-                    </button>
+                    {!isVirtualBillId(bill.id) && (
+                      <button
+                        className="button ghost danger"
+                        type="button"
+                        onClick={() => handleDelete(bill.id)}
+                      >
+                        Remover
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}
